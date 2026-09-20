@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+
+# Secrets & local runtime
+.env
+data/
+logs/
+*.db
+*.bak
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Packaging scratch
+_release/
+*.zip
+
+brain.json
+outputs/
+
+# Optional local deploy artifacts
+_vercel_deploy.json
+_vercel_files.json
+
+CREDENZIALI.local.txt
+*.local.txt
+

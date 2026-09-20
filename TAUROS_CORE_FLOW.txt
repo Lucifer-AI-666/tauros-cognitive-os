@@ -1,0 +1,1832 @@
+============================================================
+FILE: tauros\orchestrator.py
+============================================================
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from .database import Database
+from .memory import MemoryManager
+from .models import ChatRequest, ChatResponse, Trace
+from .plan_executor import PlanExecutor
+from .plan_models import StructuredPlan
+from .plan_validator import PlanValidator
+from .planner import Planner
+from .policy import PolicyEngine
+from .providers import LLMProvider, ProviderError
+from .security import redact_obj
+from .settings import Settings
+from .tools import ToolRegistry
+
+_DEGRADED_MARKERS = (
+    "Il motore linguistico non è raggiungibile",
+    "motore esterno (Vertex) non è raggiungibile",
+    "capacità di elaborazione linguistica è attualmente limitata",
+)
+
+
+def _history_for_llm(history: list[dict]) -> list[dict]:
+    clean: list[dict] = []
+    for item in history:
+        text = item.get("content") or ""
+        if any(marker in text for marker in _DEGRADED_MARKERS):
+            continue
+        clean.append(item)
+    return clean
+
+
+class Orchestrator:
+    def __init__(
+        self,
+        settings: Settings,
+        db: Database,
+        provider: LLMProvider,
+        memory: MemoryManager,
+        planner: Planner,
+        tools: ToolRegistry,
+        policy: PolicyEngine | None = None,
+    ):
+        self.settings = settings
+        self.db = db
+        self.provider = provider
+        self.memory = memory
+        self.planner = planner
+        self.tools = tools
+        self.policy = policy or getattr(tools, "policy", None)
+        prompt_path = Path(__file__).parent.parent / "config" / "system_prompt.md"
+        self.system_prompt = prompt_path.read_text(encoding="utf-8")
+
+        allowed = {t["name"] for t in tools.available()}
+        allowed |= {
+            "system_info",
+            "disk_usage",
+            "list_directory",
+            "read_text_file",
+            "memory_search",
+            "workspace_search",
+            "git_status",
+            "git_log",
+            "git_diff",
+            "project_summary",
+            "propose_write",
+            "propose_patch",
+            "file_snapshot",
+        }
+        self.plan_validator = PlanValidator(
+            allowed_tools=allowed,
+            max_steps=settings.max_plan_steps,
+            max_same_tool=settings.max_same_tool_calls,
+        )
+        self.plan_executor = PlanExecutor(
+            tools=tools,
+            policy=self.policy if self.policy is not None else PolicyEngine(settings),
+            validator=self.plan_validator,
+            audit=lambda event, actor, details: self.db.audit(event, actor, details),
+        )
+        # Ensure planner shares allow-list and provider for LLM plans
+        if isinstance(self.planner, Planner):
+            self.planner.provider = self.provider
+            self.planner.max_steps = settings.max_plan_steps
+            self.planner.allowed_tools = allowed
+            self.planner._validator = self.plan_validator
+
+    async def chat(
+        self,
+        request: ChatRequest,
+        user_id: int | None = None,
+        role: str = "user",
+        confirmed: str | None = None,
+    ) -> ChatResponse:
+        session_id = request.session_id
+        if user_id is not None:
+            session_id = f"u{user_id}:{request.session_id}"
+
+        # Problem Agent (opzionale): arricchisce il contesto se REFRAME/INTEGRATE
+        problem_prefix = ""
+        try:
+            from .problem_bridge import reframe_hint
+
+            hint = reframe_hint(request.message)
+            if hint:
+                problem_prefix = hint + "\n\n"
+                self.db.audit(
+                    "problem_agent_hint",
+                    role,
+                    {"session_id": session_id, "hint": hint[:500]},
+                )
+        except Exception:
+            problem_prefix = ""
+
+        user_message = problem_prefix + request.message
+
+        memories = self.memory.recall(user_message, 8, user_id=user_id)
+        history = self.db.history(session_id, 16, user_id=user_id)
+
+        use_tools = request.use_tools and self.settings.security_mode != "locked"
+        if request.is_guest:
+            use_tools = False
+
+        # Hybrid planner: rules first, LLM when useful.
+        # Smalltalk must not call the brain twice (plan + reply) — it kills local Ollama.
+        from .problem_bridge import is_smalltalk
+
+        # Hybrid planner: rules first, LLM when useful
+        if (
+            use_tools
+            and getattr(self.planner, "create_llm", None)
+            and not is_smalltalk(request.message)
+        ):
+            hint_bits = []
+            if memories:
+                hint_bits.append(
+                    "memorie: "
+                    + "; ".join(m["content"][:80] for m in memories[:4])
+                )
+            if self.settings.allowlist_paths():
+                hint_bits.append(
+                    "allowlist: "
+                    + ", ".join(str(p) for p in self.settings.allowlist_paths()[:3])
+                )
+            legacy = await self.planner.create_llm(
+                user_message,
+                use_tools=True,
+                available_tools=self.tools.available(),
+                context_hint=" | ".join(hint_bits),
+            )
+        else:
+            legacy = self.planner.create(user_message, use_tools)
+
+        structured = legacy.structured or StructuredPlan(
+            intent=legacy.intent, mode="chat", steps=[]
+        )
+        if request.mode in {"chat", "plan", "execute_read_only", "propose_write"}:
+            structured = structured.model_copy(update={"mode": request.mode})
+
+        # plan-only: validate but do not execute tools
+        if structured.mode == "plan":
+            plan_run = self.plan_executor.run(
+                structured.model_copy(update={"mode": "plan"}),
+                role=role or "user",
+                user_id=user_id or 0,
+                confirmed=confirmed,
+            )
+            tool_results = []
+        else:
+            plan_run = self.plan_executor.run(
+                structured,
+                role=role or "user",
+                user_id=user_id or 0,
+                confirmed=confirmed,
+            )
+            tool_results = [
+                {
+                    "success": s.success,
+                    "ok": s.success,
+                    "tool": s.tool,
+                    "policy": s.policy,
+                    "data": s.data,
+                    "result": s.data,
+                    "error": s.error,
+                    "duration_ms": s.duration_ms,
+                    "step_id": s.step_id,
+                    "path_decision": s.path_decision,
+                }
+                for s in plan_run.steps
+            ]
+
+        if request.auto_memory:
+            candidates = self.memory.soft_save_candidates(request.message, user_id=user_id)
+        else:
+            candidates = []
+
+        context_parts: list[str] = []
+        if memories:
+            context_parts.append(
+                "MEMORIE PERTINENTI E VERIFICABILI (solo status=active, di questo utente):\n"
+                + "\n".join(
+                    f"- [{m['kind']}|importanza {m['importance']}|confidenza {m['confidence']}|fonte {m.get('source')}] "
+                    f"{m['content']}"
+                    for m in memories
+                )
+            )
+        if plan_run.approved_plan:
+            context_parts.append(
+                "PIANO OPERATIVO:\n"
+                + f"intent={plan_run.approved_plan.intent} mode={plan_run.approved_plan.mode} "
+                + f"source={getattr(legacy, 'source', 'rules')}\n"
+                + "\n".join(
+                    f"- {s.id}: {s.tool} {s.arguments} [{s.risk}]"
+                    for s in plan_run.approved_plan.steps
+                )
+            )
+        if tool_results:
+            context_parts.append("RISULTATI STRUMENTI:\n" + repr(redact_obj(tool_results)))
+        if plan_run.stopped:
+            context_parts.append(
+                f"PIANO INTERROTTO: reason={plan_run.stop_reason} step={plan_run.stop_step_id}. "
+                "Non inventare risultati non presenti nella traccia."
+            )
+        if candidates:
+            context_parts.append(
+                "MEMORIE CANDIDATE APPENA RILEVATE: sono bozze, non trattarle come fatti confermati.\n"
+                + "\n".join(f"- {m['content']}" for m in candidates)
+            )
+        context_parts.append(
+            f"MODALITÀ SICUREZZA: {self.settings.security_mode}. "
+            "Non inventare accesso a file o strumenti non presenti nella traccia."
+        )
+        if request.is_guest:
+            context_parts.append(
+                "Utente OSPITE: memoria temporanea, non promettere permanenza a lungo termine."
+            )
+        if structured.mode == "propose_write" or any(
+            r.get("tool") in {"propose_write", "propose_patch"} for r in tool_results
+        ):
+            context_parts.append(
+                "SCRITTURE SUPERVISIONATE: le proposte NON sono ancora su disco. "
+                "Informa l'utente di aprire la console → Scritture, rivedere anteprima e approvare. "
+                "Non affermare che il file è stato modificato finché status≠applied."
+            )
+
+        messages = [{"role": "system", "content": self.system_prompt}]
+        if context_parts:
+            messages.append({"role": "system", "content": "\n\n".join(context_parts)})
+        messages.extend(
+            {"role": item["role"], "content": item["content"]}
+            for item in _history_for_llm(history)
+        )
+        # LLM riceve eventuale hint Problem Agent; in DB resta il messaggio utente originale
+        messages.append({"role": "user", "content": user_message})
+
+        self.db.add_message(session_id, "user", request.message, user_id=user_id)
+        try:
+            answer = await self.provider.chat(messages)
+        except ProviderError as exc:
+            local = []
+            if plan_run.steps:
+                ok_n = sum(1 for s in plan_run.steps if s.success)
+                local.append(f"{ok_n}/{len(plan_run.steps)} passaggi tool ok")
+            if plan_run.stopped:
+                local.append(f"piano fermato: {plan_run.stop_reason}")
+            if memories:
+                local.append(f"{len(memories)} memorie")
+            detail = "; ".join(local) if local else "operazioni locali disponibili"
+            answer = (
+                "Il motore linguistico non è raggiungibile. TAUROS resta operativo in modalità degradata: "
+                f"{detail}. Dettaglio tecnico: {exc}"
+            )
+        self.db.add_message(session_id, "assistant", answer, user_id=user_id)
+
+        plan_trace = []
+        if plan_run.approved_plan:
+            plan_trace = [
+                {
+                    "id": s.id,
+                    "tool": s.tool,
+                    "arguments": s.arguments,
+                    "risk": s.risk,
+                    "purpose": s.purpose,
+                }
+                for s in plan_run.approved_plan.steps
+            ]
+        elif plan_run.requested_plan:
+            plan_trace = [
+                {"id": s.id, "tool": s.tool, "arguments": s.arguments}
+                for s in plan_run.requested_plan.steps
+            ]
+
+        trace = Trace(
+            intent=structured.intent,
+            plan=plan_trace,
+            memories=[
+                {
+                    "id": m["id"],
+                    "kind": m["kind"],
+                    "importance": m["importance"],
+                    "content": m["content"],
+                    "source": m.get("source"),
+                    "status": m.get("status"),
+                    "confidence": m.get("confidence"),
+                }
+                for m in memories
+            ],
+            tools=tool_results,
+            memory_candidates=candidates,
+            security_mode=self.settings.security_mode,
+            plan_mode=plan_run.mode,
+            plan_run=redact_obj(plan_run.model_dump()),
+            stop_reason=plan_run.stop_reason,
+            planner_source=getattr(legacy, "source", "rules"),
+        )
+        self.db.audit(
+            "chat",
+            "user",
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+                "trace": redact_obj(trace.model_dump()),
+            },
+        )
+        return ChatResponse(
+            answer=answer,
+            session_id=request.session_id,
+            provider=self.settings.provider,
+            model=self.settings.model,
+            memories_used=memories,
+            tool_results=tool_results,
+            trace=trace,
+        )
+
+    def run_plan(self, plan: StructuredPlan | dict[str, Any] | str):
+        """Execute a hand-written or generated plan without LLM (tests / operator)."""
+        return self.plan_executor.run(plan)
+
+    def build_brief(self, user_id: int | None, *, is_operator: bool = False) -> dict[str, Any]:
+        """Continuity brief: open loops, decisions, candidates, recent activity."""
+        uid = None if is_operator else user_id
+        if is_operator:
+            loops = self.db.list_memories(
+                20, kind="open_loop", statuses=["active", "candidate"]
+            )
+            candidates = self.db.list_memories(15, status="candidate")
+            decisions_open = self.db.list_decisions(15, status="open")
+            decisions_revisit = self.db.list_decisions(10, status="revisit")
+            active = self.db.list_memories(10, status="active")
+            audit = self.db.list_audit(8)
+        else:
+            loops = self.db.list_memories(
+                20, kind="open_loop", statuses=["active", "candidate"], user_id=user_id
+            )
+            candidates = self.db.list_memories(15, status="candidate", user_id=user_id)
+            decisions_open = self.db.list_decisions(15, status="open", user_id=user_id)
+            decisions_revisit = self.db.list_decisions(10, status="revisit", user_id=user_id)
+            active = self.db.list_memories(10, status="active", user_id=user_id)
+            audit = []
+
+        headlines: list[str] = []
+        if loops:
+            headlines.append(f"{len(loops)} open loop aperti")
+        if candidates:
+            headlines.append(f"{len(candidates)} memorie candidate da confermare")
+        if decisions_open or decisions_revisit:
+            headlines.append(
+                f"{len(decisions_open)} decisioni open, {len(decisions_revisit)} da rivisitare"
+            )
+        if not headlines:
+            headlines.append("Nessuna urgenza: sistema quieto")
+
+        narrative = (
+            "Brief TAUROS — continuità operativa.\n"
+            + " · ".join(headlines)
+            + ".\n"
+            "Conferma le candidate prima di trattarle come fatti. "
+            "Chiudi gli open loop o elevane l'importanza."
+        )
+        return {
+            "generated_at": self.db.now(),
+            "headlines": headlines,
+            "narrative": narrative,
+            "open_loops": loops[:12],
+            "candidates": candidates[:12],
+            "decisions_open": decisions_open,
+            "decisions_revisit": decisions_revisit,
+            "recent_active_memories": active[:8],
+            "recent_audit": audit,
+            "counts": {
+                "open_loops": len(loops),
+                "candidates": len(candidates),
+                "decisions_open": len(decisions_open),
+                "decisions_revisit": len(decisions_revisit),
+            },
+            "user_id": user_id,
+            "scope": "operator" if is_operator else "user",
+        }
+
+============================================================
+FILE: tauros\plan_executor.py
+============================================================
+"""Execute validated plans one step at a time — never skips policy."""
+
+from __future__ import annotations
+
+import time
+from typing import Any, Callable
+
+from .plan_models import PlanRunResult, PlanStep, StepResult, StructuredPlan
+from .plan_validator import PlanValidator
+from .policy import PolicyEngine
+from .security import redact_obj
+from .tools import ToolRegistry
+
+
+class PlanExecutor:
+    """
+    Chain: validate → policy per step → tool → audit callback.
+
+    Stops on first policy denial or hard tool failure.
+    """
+
+    def __init__(
+        self,
+        *,
+        tools: ToolRegistry,
+        policy: PolicyEngine,
+        validator: PlanValidator,
+        audit: Callable[[str, str, dict[str, Any]], None] | None = None,
+    ):
+        self.tools = tools
+        self.policy = policy
+        self.validator = validator
+        self.audit = audit or (lambda *_a, **_k: None)
+
+    def run(
+        self,
+        plan: StructuredPlan | dict[str, Any] | str,
+        *,
+        role: str = "user",
+        user_id: int = 0,
+        confirmed: str | None = None,
+    ) -> PlanRunResult:
+        if isinstance(plan, StructuredPlan):
+            requested = plan
+            validation = self.validator.validate(plan)
+        else:
+            validation = self.validator.validate_raw(plan)
+            requested = validation.plan or StructuredPlan(intent="invalid", mode="plan", steps=[])
+
+        self.audit(
+            "plan_requested",
+            "tauros",
+            redact_obj({"plan": requested.model_dump(), "validation_ok": validation.ok}),
+        )
+
+        if not validation.ok or validation.plan is None:
+            result = PlanRunResult(
+                requested_plan=requested,
+                approved_plan=None,
+                validation=validation,
+                stopped=True,
+                stop_reason="validation_failed",
+                mode=requested.mode,
+            )
+            self.audit("plan_rejected", "policy", redact_obj(result.model_dump()))
+            return result
+
+        approved = validation.plan
+        if approved.mode in {"chat", "plan"}:
+            # No execution — structure only
+            out = PlanRunResult(
+                requested_plan=requested,
+                approved_plan=approved,
+                validation=validation,
+                stopped=False,
+                stop_reason="mode_no_execute" if approved.mode == "plan" else None,
+                mode=approved.mode,
+            )
+            self.audit("plan_approved_no_execute", "tauros", redact_obj(out.model_dump()))
+            return out
+
+        self.tools.reset_turn_limits()
+        self.audit(
+            "plan_approved",
+            "tauros",
+            redact_obj({"plan": approved.model_dump()}),
+        )
+
+        step_results: list[StepResult] = []
+        seen_fp: set[str] = set()
+
+        for step in approved.steps:
+            fp = approved.fingerprint_step(step)
+            if fp in seen_fp:
+                sr = StepResult(
+                    step_id=step.id,
+                    tool=step.tool,
+                    success=False,
+                    policy="blocked",
+                    risk=step.risk,
+                    purpose=step.purpose,
+                    error="Ciclo rilevato in esecuzione (fingerprint ripetuto)",
+                    fingerprint=fp,
+                )
+                step_results.append(sr)
+                run = PlanRunResult(
+                    requested_plan=requested,
+                    approved_plan=approved,
+                    validation=validation,
+                    steps=step_results,
+                    stopped=True,
+                    stop_reason="cycle_detected",
+                    stop_step_id=step.id,
+                    mode=approved.mode,
+                )
+                self.audit("plan_stopped", "tauros", redact_obj(run.model_dump()))
+                return run
+            seen_fp.add(fp)
+
+            decision = self.policy.authorize_tool(
+                step.tool,
+                step.arguments,
+                role=role,
+                user_id=user_id,
+                confirmed=confirmed,
+            )
+            path_decision = decision.path_decision
+            if not decision.allowed:
+                sr = StepResult(
+                    step_id=step.id,
+                    tool=step.tool,
+                    success=False,
+                    policy="blocked",
+                    risk=decision.risk,
+                    purpose=step.purpose,
+                    error=decision.reason,
+                    path_decision=path_decision,
+                    fingerprint=fp,
+                )
+                step_results.append(sr)
+                self.audit(
+                    "plan_step_denied",
+                    "policy",
+                    redact_obj(
+                        {
+                            "step": step.model_dump(),
+                            "reason": decision.reason,
+                            "path_decision": path_decision,
+                            "privilege": decision.privilege,
+                            "confirmation": decision.confirmation,
+                            "role": role,
+                            "user_id": user_id,
+                        }
+                    ),
+                )
+                run = PlanRunResult(
+                    requested_plan=requested,
+                    approved_plan=approved,
+                    validation=validation,
+                    steps=step_results,
+                    stopped=True,
+                    stop_reason="policy_denied",
+                    stop_step_id=step.id,
+                    mode=approved.mode,
+                )
+                self.audit("plan_stopped", "tauros", redact_obj(run.model_dump()))
+                return run
+
+            started = time.perf_counter()
+            exec_args = dict(step.arguments)
+            exec_args["_role"] = role
+            exec_args["_user_id"] = user_id
+            exec_args["_actor"] = f"plan:{role}:{user_id}"
+            if confirmed:
+                exec_args["_confirmed"] = confirmed
+            tool_out = self.tools.execute(step.tool, exec_args)
+            duration = int((time.perf_counter() - started) * 1000)
+            success = bool(tool_out.get("success") or tool_out.get("ok"))
+            sr = StepResult(
+                step_id=step.id,
+                tool=step.tool,
+                success=success,
+                policy=str(tool_out.get("policy") or "allowed"),
+                risk=step.risk,
+                purpose=step.purpose,
+                data=tool_out.get("data") if success else None,
+                error=None if success else str(tool_out.get("error") or "tool_failed"),
+                duration_ms=duration,
+                path_decision=path_decision,
+                fingerprint=fp,
+            )
+            step_results.append(sr)
+            self.audit(
+                "plan_step_executed",
+                "tauros",
+                redact_obj(
+                    {
+                        "step_id": step.id,
+                        "tool": step.tool,
+                        "success": success,
+                        "duration_ms": duration,
+                        "error": sr.error,
+                    }
+                ),
+            )
+
+            if not success:
+                run = PlanRunResult(
+                    requested_plan=requested,
+                    approved_plan=approved,
+                    validation=validation,
+                    steps=step_results,
+                    stopped=True,
+                    stop_reason="tool_failed",
+                    stop_step_id=step.id,
+                    mode=approved.mode,
+                )
+                self.audit("plan_stopped", "tauros", redact_obj(run.model_dump()))
+                return run
+
+        run = PlanRunResult(
+            requested_plan=requested,
+            approved_plan=approved,
+            validation=validation,
+            steps=step_results,
+            stopped=False,
+            stop_reason=None,
+            mode=approved.mode,
+        )
+        self.audit("plan_completed", "tauros", redact_obj({"steps": len(step_results)}))
+        return run
+
+============================================================
+FILE: tauros\policy.py
+============================================================
+"""Policy engine: the model proposes, policy decides (role-aware)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from .privileges import ConfirmationLevel, PrivilegeLevel, PrivilegeService
+from .rules import RuleStore
+from .security import AccessLevel, PathGuard
+from .settings import Settings
+
+
+@dataclass
+class PolicyDecision:
+    allowed: bool
+    reason: str
+    risk: str = "low"
+    path_decision: dict[str, Any] | None = None
+    privilege: dict[str, Any] | None = None
+    confirmation: str = "none"
+
+
+class PolicyEngine:
+    """
+    Chain:
+      1) privilege level / elevation / confirmation class
+      2) PathGuard (workspace allowlist + trust zones)
+      3) system locked mode still respected for non-elevated sessions
+    """
+
+    filesystem_tools = {
+        "list_directory",
+        "read_text_file",
+        "disk_usage",
+        "workspace_search",
+        "git_status",
+        "git_log",
+        "git_diff",
+        "project_summary",
+        "propose_write",
+        "propose_patch",
+        "file_snapshot",
+        "write_file",
+        "file_restore",
+        "delete_file",
+    }
+
+    def __init__(
+        self,
+        settings: Settings,
+        path_guard: PathGuard | None = None,
+        privileges: PrivilegeService | None = None,
+    ):
+        self.settings = settings
+        self.privileges = privileges or PrivilegeService.from_settings(settings)
+        self.rules = RuleStore(Path(settings.rules_path))
+        roots: list[Path] = []
+        seen: set[str] = set()
+        for p in list(settings.allowlist_paths()) + list(self.privileges.trust_zones):
+            try:
+                key = str(Path(p).expanduser().resolve())
+            except OSError:
+                key = str(p)
+            if key not in seen:
+                seen.add(key)
+                roots.append(Path(p).expanduser())
+        self.path_guard = path_guard or PathGuard(
+            allowlist=roots,
+            blocklist=settings.blocklist_paths(),
+            max_file_bytes=settings.max_file_bytes,
+            require_allowlist=True,
+        )
+
+    def authorize_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        role: str = "user",
+        user_id: int = 0,
+        confirmed: str | None = None,
+    ) -> PolicyDecision:
+        # Global system lock still blocks filesystem for non-admin effective levels
+        mode = self.settings.security_mode
+        effective = self.privileges.effective_level(role, user_id)
+        if mode == "locked" and name in self.filesystem_tools:
+            if effective < PrivilegeLevel.ADMINISTRATOR:
+                return PolicyDecision(
+                    False,
+                    "Modalità sistema locked: eleva ad ADMINISTRATOR per sbloccare",
+                    "medium",
+                    confirmation=ConfirmationLevel.STRONG.value,
+                )
+
+        conf_enum: ConfirmationLevel | None = None
+        if confirmed:
+            try:
+                conf_enum = ConfirmationLevel(confirmed)
+            except ValueError:
+                conf_enum = None
+
+        path_value = arguments.get("path") or arguments.get("repo")
+        path_obj = Path(str(path_value)).expanduser() if path_value else None
+
+        hit = self.rules.evaluate(name, str(path_obj) if path_obj else None)
+        if hit and hit.rule.effect == "deny":
+            return PolicyDecision(False, hit.reason, "high", confirmation="none")
+
+        priv = self.privileges.authorize_tool(
+            tool=name,
+            role=role,
+            user_id=user_id,
+            path=path_obj,
+            confirmed=conf_enum,
+        )
+        if not priv.allowed:
+            return PolicyDecision(
+                False,
+                priv.reason,
+                priv.risk,
+                privilege=priv.to_dict(),
+                confirmation=priv.confirmation.value,
+            )
+
+        if name in self.filesystem_tools or path_value:
+            if path_value:
+                level = AccessLevel.LIST if name == "list_directory" else AccessLevel.READ
+                decision = self.path_guard.resolve(
+                    str(path_value), for_read=True, access=level
+                )
+                if not decision.allowed:
+                    return PolicyDecision(
+                        False,
+                        decision.reason,
+                        decision.risk or "high",
+                        path_decision=decision.to_dict(),
+                        privilege=priv.to_dict(),
+                        confirmation=priv.confirmation.value,
+                    )
+                confirm = (
+                    ConfirmationLevel.SIMPLE.value
+                    if hit and hit.rule.effect == "confirm"
+                    else ConfirmationLevel.NONE.value
+                )
+                return PolicyDecision(
+                    True,
+                    hit.reason if hit and hit.rule.effect == "confirm" else priv.reason,
+                    priv.risk,
+                    path_decision=decision.to_dict(),
+                    privilege=priv.to_dict(),
+                    confirmation=confirm,
+                )
+            if name in {"list_directory", "read_text_file"} and not self.path_guard.allowlist:
+                return PolicyDecision(
+                    False, "Allowlist/trust zone vuota: filesystem negato", "high"
+                )
+
+        confirm = (
+            ConfirmationLevel.SIMPLE.value
+            if hit and hit.rule.effect == "confirm"
+            else priv.confirmation.value
+        )
+        return PolicyDecision(
+            True,
+            hit.reason if hit and hit.rule.effect == "confirm" else priv.reason,
+            priv.risk,
+            privilege=priv.to_dict(),
+            confirmation=confirm,
+        )
+
+============================================================
+FILE: tauros\tools.py
+============================================================
+from __future__ import annotations
+
+import platform
+import re
+import shutil
+import subprocess
+import time
+from pathlib import Path
+from typing import Any, Callable
+
+from .policy import PolicyEngine
+from .security import PathGuard, redact_obj
+from .settings import Settings
+
+
+class ToolRegistry:
+    def __init__(
+        self,
+        policy: PolicyEngine,
+        settings: Settings | None = None,
+        path_guard: PathGuard | None = None,
+        memory: Any | None = None,
+        writes: Any | None = None,
+    ):
+        self.policy = policy
+        self.settings = settings
+        self.path_guard = path_guard or getattr(policy, "path_guard", None)
+        self.memory = memory
+        self.writes = writes
+        self.max_output_chars = settings.max_tool_output_chars if settings else 100_000
+        self._current_user_id: int | None = None
+        self._current_role: str = "user"
+        self._current_actor: str = "tool"
+        self._tools: dict[str, Callable[..., dict[str, Any]]] = {
+            "system_info": self.system_info,
+            "list_directory": self.list_directory,
+            "read_text_file": self.read_text_file,
+            "disk_usage": self.disk_usage,
+            "workspace_search": self.workspace_search,
+            "git_status": self.git_status,
+            "git_log": self.git_log,
+            "git_diff": self.git_diff,
+            "project_summary": self.project_summary,
+            "memory_search": self.memory_search,
+            "propose_write": self.propose_write,
+            "propose_patch": self.propose_patch,
+            "file_snapshot": self.file_snapshot,
+        }
+        self._call_counts: dict[str, int] = {}
+
+    def reset_turn_limits(self) -> None:
+        self._call_counts.clear()
+
+    def available(self) -> list[dict[str, str]]:
+        mode = self.settings.security_mode if self.settings else "read_only"
+        tools = [
+            {"name": "system_info", "description": "Informazioni locali sul sistema", "risk": "low"},
+            {"name": "list_directory", "description": "Elenca una directory in sola lettura", "risk": "low"},
+            {"name": "read_text_file", "description": "Legge un file di testo con limite", "risk": "low"},
+            {"name": "disk_usage", "description": "Mostra lo spazio disco", "risk": "low"},
+            {"name": "memory_search", "description": "Cerca nella memoria personale attiva/candidate", "risk": "low"},
+            {"name": "workspace_search", "description": "Cerca testo nei file del workspace (allowlist)", "risk": "low"},
+            {"name": "git_status", "description": "git status in sola lettura", "risk": "low"},
+            {"name": "git_log", "description": "git log recente in sola lettura", "risk": "low"},
+            {"name": "git_diff", "description": "git diff (working tree) in sola lettura", "risk": "low"},
+            {"name": "project_summary", "description": "Riassunto struttura progetto (read-only)", "risk": "low"},
+            {
+                "name": "propose_write",
+                "description": "Propone creazione/sostituzione file (NON scrive; serve approvazione UI)",
+                "risk": "medium",
+            },
+            {
+                "name": "propose_patch",
+                "description": "Propone patch univoca old→new (NON scrive; serve approvazione UI)",
+                "risk": "medium",
+            },
+            {
+                "name": "file_snapshot",
+                "description": "Crea copia di sicurezza di un file (rollback point)",
+                "risk": "low",
+            },
+        ]
+        if mode == "locked":
+            return [t for t in tools if t["name"] in {"system_info", "memory_search"}]
+        return tools
+
+    def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        started = time.perf_counter()
+        self._call_counts[name] = self._call_counts.get(name, 0) + 1
+        max_same = self.settings.max_same_tool_calls if self.settings else 3
+        if self._call_counts[name] > max_same:
+            return self._result(
+                False,
+                name,
+                started,
+                error=f"Limite chiamate per tool superato ({max_same})",
+                policy="blocked",
+            )
+
+        call_args = dict(arguments or {})
+        role = str(call_args.pop("_role", "user"))
+        user_id = int(call_args.pop("_user_id", 0) or 0)
+        actor = str(call_args.pop("_actor", "tool"))
+        confirmed = call_args.pop("_confirmed", None)
+        self._current_user_id = user_id or None
+        self._current_role = role
+        self._current_actor = actor
+        decision = self.policy.authorize_tool(
+            name, call_args, role=role, user_id=user_id, confirmed=confirmed
+        )
+        if not decision.allowed:
+            return self._result(False, name, started, error=decision.reason, policy="blocked")
+
+        tool = self._tools.get(name)
+        if not tool:
+            return self._result(False, name, started, error="Strumento non registrato", policy="blocked")
+
+        try:
+            data = tool(**call_args)
+            data = self._trim_output(data)
+            return self._result(True, name, started, data=data, policy="allowed")
+        except TypeError as exc:
+            return self._result(False, name, started, error=f"Argomenti non validi: {exc}", policy="allowed")
+        except Exception as exc:
+            return self._result(False, name, started, error=str(exc), policy="allowed")
+
+    def _trim_output(self, data: Any) -> Any:
+        text = repr(data)
+        if len(text) <= self.max_output_chars:
+            return data
+        if isinstance(data, dict):
+            clipped = dict(data)
+            clipped["truncated"] = True
+            clipped["warning"] = f"Output tagliato oltre {self.max_output_chars} caratteri"
+            if "content" in clipped and isinstance(clipped["content"], str):
+                clipped["content"] = clipped["content"][: self.max_output_chars]
+            if "matches" in clipped and isinstance(clipped["matches"], list):
+                clipped["matches"] = clipped["matches"][:50]
+            return clipped
+        return {"truncated": True, "data": text[: self.max_output_chars]}
+
+    def _result(
+        self,
+        success: bool,
+        tool: str,
+        started: float,
+        data: Any = None,
+        error: str | None = None,
+        policy: str = "allowed",
+    ) -> dict[str, Any]:
+        payload = {
+            "success": success,
+            "ok": success,  # backward compatible with v0.2 UI
+            "tool": tool,
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "data": redact_obj(data) if data is not None else None,
+            "result": redact_obj(data) if data is not None else None,
+            "warnings": [],
+            "error": error,
+            "policy": policy,
+        }
+        return payload
+
+    def _resolve_root(self, path: str | None, *, for_read: bool = True) -> Path:
+        if path is None or not str(path).strip():
+            if not self.path_guard or not self.path_guard.allowlist:
+                raise PermissionError("Allowlist vuota: specifica un percorso autorizzato")
+            return self.path_guard.allowlist[0]
+        decision = self.path_guard.resolve(path, for_read=for_read) if self.path_guard else None
+        if decision and not decision.allowed:
+            raise PermissionError(decision.reason)
+        return decision.path if decision and decision.path else Path(path).expanduser().resolve()
+
+    def system_info(self) -> dict[str, Any]:
+        return {
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+            "hostname": platform.node(),
+            "machine": platform.machine(),
+        }
+
+    def list_directory(self, path: str | None = None, limit: int = 200) -> dict[str, Any]:
+        target = self._resolve_root(path, for_read=True)
+        if not target.exists() or not target.is_dir():
+            raise FileNotFoundError(f"Directory non trovata: {target}")
+
+        items = []
+        for child in sorted(target.iterdir(), key=lambda p: p.name.lower())[: max(1, min(int(limit), 500))]:
+            if self.path_guard:
+                check = self.path_guard.resolve(str(child), for_read=False)
+                if not check.allowed and "sensibile" in check.reason.casefold():
+                    continue
+            try:
+                size = child.stat().st_size if child.is_file() else 0
+            except OSError:
+                size = 0
+            items.append(
+                {
+                    "name": child.name,
+                    "type": "directory" if child.is_dir() else "file",
+                    "size": size,
+                }
+            )
+        return {"path": str(target), "items": items}
+
+    def read_text_file(self, path: str, max_chars: int = 20000) -> dict[str, Any]:
+        max_chars = min(int(max_chars), self.max_output_chars)
+        if self.path_guard:
+            return self.path_guard.open_text_verified(path, max_chars=max_chars)
+        target = Path(path).expanduser().resolve()
+        data = target.read_text(encoding="utf-8", errors="replace")[:max_chars]
+        return {
+            "path": str(target),
+            "content": data,
+            "truncated": target.stat().st_size > len(data.encode("utf-8", errors="replace")),
+        }
+
+    def disk_usage(self, path: str | None = None) -> dict[str, Any]:
+        target = self._resolve_root(path, for_read=False)
+        total, used, free = shutil.disk_usage(target)
+        return {"path": str(target), "total": total, "free": free, "used": used}
+
+    def memory_search(self, query: str, limit: int = 10) -> dict[str, Any]:
+        if not self.memory:
+            raise RuntimeError("Memoria non collegata a ToolRegistry")
+        q = (query or "").strip()
+        if not q:
+            raise ValueError("query obbligatoria")
+        lim = max(1, min(int(limit), 50))
+        uid = self._current_user_id
+        if hasattr(self.memory, "recall"):
+            hits = self.memory.recall(q, lim, user_id=uid)
+        else:
+            hits = []
+        return {"query": q, "count": len(hits), "items": hits}
+
+    def workspace_search(
+        self,
+        query: str,
+        path: str | None = None,
+        max_files: int = 40,
+        max_matches: int = 30,
+    ) -> dict[str, Any]:
+        q = (query or "").strip()
+        if not q:
+            raise ValueError("query obbligatoria")
+        root = self._resolve_root(path, for_read=True)
+        if not root.is_dir():
+            raise FileNotFoundError(f"Directory non trovata: {root}")
+
+        skip_dirs = {
+            ".git",
+            ".venv",
+            "venv",
+            "node_modules",
+            "__pycache__",
+            ".pytest_cache",
+            "dist",
+            "build",
+            ".tox",
+            "data",
+        }
+        skip_suffix = {
+            ".pyc",
+            ".pyo",
+            ".so",
+            ".dll",
+            ".exe",
+            ".bin",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".webp",
+            ".ico",
+            ".pdf",
+            ".zip",
+            ".gz",
+            ".7z",
+            ".db",
+            ".sqlite",
+            ".woff",
+            ".woff2",
+        }
+        max_files = max(1, min(int(max_files), 200))
+        max_matches = max(1, min(int(max_matches), 100))
+        pattern = re.compile(re.escape(q), re.IGNORECASE)
+        matches: list[dict[str, Any]] = []
+        files_scanned = 0
+        max_file_bytes = self.settings.max_file_bytes if self.settings else 2_000_000
+
+        import os
+
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs and not d.startswith(".")]
+            for name in filenames:
+                if files_scanned >= max_files or len(matches) >= max_matches:
+                    break
+                suffix = Path(name).suffix.lower()
+                if suffix in skip_suffix:
+                    continue
+                if name.startswith(".") and name not in {".env.example", ".gitignore"}:
+                    continue
+                fpath = Path(dirpath) / name
+                if self.path_guard:
+                    check = self.path_guard.resolve(str(fpath), for_read=True)
+                    if not check.allowed:
+                        continue
+                    fpath = check.path or fpath
+                try:
+                    st = fpath.stat()
+                except OSError:
+                    continue
+                if not fpath.is_file() or st.st_size > min(max_file_bytes, 400_000):
+                    continue
+                files_scanned += 1
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                for i, line in enumerate(text.splitlines(), 1):
+                    if pattern.search(line):
+                        matches.append(
+                            {
+                                "path": str(fpath),
+                                "line": i,
+                                "snippet": line.strip()[:240],
+                            }
+                        )
+                        if len(matches) >= max_matches:
+                            break
+            if files_scanned >= max_files or len(matches) >= max_matches:
+                break
+
+        return {
+            "query": q,
+            "root": str(root),
+            "files_scanned": files_scanned,
+            "match_count": len(matches),
+            "matches": matches,
+            "truncated": files_scanned >= max_files or len(matches) >= max_matches,
+        }
+
+    def _run_git(self, path: str | None, args: list[str], timeout: int | None = None) -> dict[str, Any]:
+        root = self._resolve_root(path, for_read=True)
+        if not root.exists():
+            raise FileNotFoundError(f"Path non trovato: {root}")
+        # Find git root: if path is file, use parent
+        cwd = root if root.is_dir() else root.parent
+        timeout = timeout or (self.settings.tool_timeout_seconds if self.settings else 30)
+        # Refuse write-like git args
+        blocked = {
+            "commit",
+            "push",
+            "pull",
+            "checkout",
+            "merge",
+            "rebase",
+            "reset",
+            "clean",
+            "add",
+            "rm",
+            "mv",
+            "tag",
+            "stash",
+            "fetch",
+            "clone",
+            "init",
+            "config",
+        }
+        if any(a.lstrip("-") in blocked for a in args):
+            raise PermissionError(f"Comando git non ammesso in sola lettura: {args}")
+        try:
+            proc = subprocess.run(
+                ["git", *args],
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("git non installato o non nel PATH") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"git timeout dopo {timeout}s") from exc
+        out = (proc.stdout or "")[: self.max_output_chars]
+        err = (proc.stderr or "")[: 2000]
+        return {
+            "path": str(cwd),
+            "args": args,
+            "exit_code": proc.returncode,
+            "stdout": out,
+            "stderr": err,
+            "ok": proc.returncode == 0,
+        }
+
+    def git_status(self, path: str | None = None) -> dict[str, Any]:
+        return self._run_git(path, ["status", "--short", "--branch"])
+
+    def git_log(self, path: str | None = None, limit: int = 12) -> dict[str, Any]:
+        lim = max(1, min(int(limit), 50))
+        return self._run_git(
+            path,
+            ["log", f"-{lim}", "--pretty=format:%h %ad %an %s", "--date=short"],
+        )
+
+    def git_diff(self, path: str | None = None, max_chars: int = 30000) -> dict[str, Any]:
+        result = self._run_git(path, ["diff", "--stat", "HEAD"])
+        # Also include a truncated full diff if short
+        full = self._run_git(path, ["diff", "HEAD"])
+        content = (full.get("stdout") or "")[: max(1000, min(int(max_chars), self.max_output_chars))]
+        result["diff_preview"] = content
+        result["diff_truncated"] = len(full.get("stdout") or "") > len(content)
+        return result
+
+    def project_summary(self, path: str | None = None) -> dict[str, Any]:
+        root = self._resolve_root(path, for_read=True)
+        if not root.is_dir():
+            raise FileNotFoundError(f"Directory non trovata: {root}")
+        listing = self.list_directory(str(root), limit=80)
+        markers = [
+            "pyproject.toml",
+            "package.json",
+            "Cargo.toml",
+            "go.mod",
+            "requirements.txt",
+            "Dockerfile",
+            "README.md",
+            "README",
+            ".git",
+        ]
+        found = []
+        for m in markers:
+            p = root / m
+            if p.exists():
+                found.append(m)
+        git_branch = None
+        if (root / ".git").exists():
+            try:
+                st = self.git_status(str(root))
+                git_branch = (st.get("stdout") or "").splitlines()[0] if st.get("stdout") else None
+            except Exception:  # noqa: BLE001
+                git_branch = None
+        return {
+            "path": str(root),
+            "top_level": listing.get("items", []),
+            "markers": found,
+            "git_head": git_branch,
+        }
+
+    def propose_write(
+        self,
+        path: str,
+        content: str,
+        kind: str = "replace",
+        purpose: str = "",
+    ) -> dict[str, Any]:
+        """Draft only — never touches disk for the target content."""
+        if not self.writes:
+            raise RuntimeError("WriteService non collegato")
+        if kind not in {"create", "replace"}:
+            kind = "replace"
+        return self.writes.propose(
+            user_id=self._current_user_id or 0,
+            actor=self._current_actor,
+            path=path,
+            content=content,
+            kind=kind,
+            purpose=purpose,
+            role=self._current_role,
+        )
+
+    def propose_patch(
+        self,
+        path: str,
+        old_text: str,
+        new_text: str,
+        purpose: str = "",
+    ) -> dict[str, Any]:
+        if not self.writes:
+            raise RuntimeError("WriteService non collegato")
+        return self.writes.propose(
+            user_id=self._current_user_id or 0,
+            actor=self._current_actor,
+            path=path,
+            kind="patch",
+            old_text=old_text,
+            new_text=new_text,
+            purpose=purpose,
+            role=self._current_role,
+        )
+
+    def file_snapshot(self, path: str) -> dict[str, Any]:
+        if not self.writes:
+            raise RuntimeError("WriteService non collegato")
+        return self.writes.snapshot(
+            path,
+            user_id=self._current_user_id or 0,
+            actor=self._current_actor,
+            role=self._current_role,
+        )
+
+============================================================
+FILE: tauros\writes.py
+============================================================
+"""
+Supervised writes: propose → preview → approve → backup → write → verify → rollback.
+
+Never silent. Never permanent god mode. Audit always.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import secrets
+import shutil
+import threading
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable
+
+from .privileges import ConfirmationLevel, PrivilegeLevel, PrivilegeService
+from .security import PathGuard, redact_obj
+from .settings import Settings
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+class ProposalKind(str, Enum):
+    CREATE = "create"
+    REPLACE = "replace"
+    PATCH = "patch"
+
+
+class ProposalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"  # reserved
+    REJECTED = "rejected"
+    APPLIED = "applied"
+    ROLLED_BACK = "rolled_back"
+    FAILED = "failed"
+
+
+@dataclass
+class WriteProposal:
+    id: str
+    user_id: int
+    actor: str
+    path: str
+    kind: ProposalKind
+    content_before: str | None
+    content_after: str
+    patch_old: str | None = None
+    patch_new: str | None = None
+    purpose: str = ""
+    risk: str = "medium"
+    status: ProposalStatus = ProposalStatus.PENDING
+    created_at: str = field(default_factory=lambda: _now().isoformat())
+    decided_at: str | None = None
+    backup_path: str | None = None
+    result_hash: str | None = None
+    expected_hash: str | None = None
+    error: str | None = None
+    in_trust_zone: bool = False
+    requires_strong: bool = False
+
+    def to_public(self, *, include_full: bool = True) -> dict[str, Any]:
+        before_preview = None
+        after_preview = self.content_after
+        if include_full:
+            before_preview = self.content_before
+        else:
+            if self.content_before is not None:
+                before_preview = self.content_before[:2000] + (
+                    "…" if len(self.content_before) > 2000 else ""
+                )
+            after_preview = self.content_after[:2000] + (
+                "…" if len(self.content_after) > 2000 else ""
+            )
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "actor": self.actor,
+            "path": self.path,
+            "kind": self.kind.value,
+            "status": self.status.value,
+            "purpose": self.purpose,
+            "risk": self.risk,
+            "created_at": self.created_at,
+            "decided_at": self.decided_at,
+            "backup_path": self.backup_path,
+            "content_before": before_preview if include_full else before_preview,
+            "content_after": after_preview if include_full else after_preview,
+            "content_before_len": len(self.content_before or ""),
+            "content_after_len": len(self.content_after or ""),
+            "patch_old": self.patch_old,
+            "patch_new": self.patch_new,
+            "expected_hash": self.expected_hash or _sha256_text(self.content_after),
+            "result_hash": self.result_hash,
+            "error": self.error,
+            "in_trust_zone": self.in_trust_zone,
+            "requires_strong": self.requires_strong,
+            "file_exists": self.content_before is not None,
+            "diff_summary": self._diff_summary(),
+        }
+
+    def _diff_summary(self) -> dict[str, Any]:
+        b = self.content_before or ""
+        a = self.content_after or ""
+        return {
+            "lines_before": b.count("\n") + (1 if b else 0),
+            "lines_after": a.count("\n") + (1 if a else 0),
+            "chars_before": len(b),
+            "chars_after": len(a),
+            "changed": b != a,
+            "kind": self.kind.value,
+        }
+
+
+class WriteService:
+    """
+    In-memory proposal queue + on-disk file snapshots under backup_dir/file_snaps.
+    """
+
+    MAX_CONTENT = 500_000
+
+    def __init__(
+        self,
+        settings: Settings,
+        path_guard: PathGuard,
+        privileges: PrivilegeService,
+        *,
+        audit: Callable[[str, str, dict[str, Any]], None] | None = None,
+    ):
+        self.settings = settings
+        self.path_guard = path_guard
+        self.privileges = privileges
+        self.audit = audit or (lambda *_a, **_k: None)
+        self._lock = threading.RLock()
+        self._proposals: dict[str, WriteProposal] = {}
+        self.snap_dir = Path(settings.backup_dir) / "file_snaps"
+        self.snap_dir.mkdir(parents=True, exist_ok=True)
+
+    def list_proposals(
+        self, user_id: int | None = None, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            items = list(self._proposals.values())
+        if user_id is not None:
+            items = [p for p in items if p.user_id == user_id]
+        if status:
+            items = [p for p in items if p.status.value == status]
+        items.sort(key=lambda p: p.created_at, reverse=True)
+        return [p.to_public(include_full=False) for p in items]
+
+    def get(self, proposal_id: str) -> WriteProposal | None:
+        with self._lock:
+            return self._proposals.get(proposal_id)
+
+    def _resolve_write_path(self, path: str) -> Path:
+        # Write access: resolve with for_read=False still checks allowlist
+        decision = self.path_guard.resolve(path, for_read=True)
+        if not decision.allowed or not decision.path:
+            raise PermissionError(decision.reason or "Path non autorizzato")
+        target = decision.path
+        # Extension / sensitive name checks already in path_guard for files
+        return target
+
+    def _assert_writable_mode(self, effective: PrivilegeLevel) -> None:
+        mode = self.settings.security_mode
+        if mode == "locked":
+            raise PermissionError("Modalità locked: nessuna scrittura")
+        if mode == "read_only" and effective < PrivilegeLevel.ADMINISTRATOR:
+            raise PermissionError(
+                "Modalità read_only: eleva ad ADMINISTRATOR per scritture supervisionate"
+            )
+        if effective < PrivilegeLevel.ADMINISTRATOR:
+            raise PermissionError(
+                "Serve livello ADMINISTRATOR (elevazione temporanea dalla console)"
+            )
+
+    def propose(
+        self,
+        *,
+        user_id: int,
+        actor: str,
+        path: str,
+        content: str | None = None,
+        kind: str = "replace",
+        old_text: str | None = None,
+        new_text: str | None = None,
+        purpose: str = "",
+        role: str = "user",
+    ) -> dict[str, Any]:
+        if len(content or "") > self.MAX_CONTENT or len(new_text or "") > self.MAX_CONTENT:
+            raise ValueError(f"Contenuto oltre {self.MAX_CONTENT} caratteri")
+
+        target = self._resolve_write_path(path)
+        # Block writing outside allowlist already done; prefer trust zones for lower friction
+        in_zone = self.privileges.path_in_trust_zone(target)
+        effective = self.privileges.effective_level(role, user_id)
+        # Proposing requires at least OPERATOR (can draft); apply needs ADMIN
+        if effective < PrivilegeLevel.OPERATOR and role not in {"owner", "admin", "operator"}:
+            # Owner is already ADMIN base; plain user can propose only if elevated to OPERATOR+
+            if effective < PrivilegeLevel.OPERATOR:
+                raise PermissionError(
+                    "Per proporre scritture serve almeno OPERATOR (eleva i privilegi)"
+                )
+
+        exists = target.exists() and target.is_file()
+        before: str | None = None
+        if exists:
+            try:
+                before = target.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                raise PermissionError(f"Impossibile leggere file attuale: {exc}") from exc
+
+        kind_e = ProposalKind(kind)
+        if kind_e == ProposalKind.CREATE:
+            if exists:
+                raise ValueError("File già esistente: usa replace o patch")
+            if content is None:
+                raise ValueError("content obbligatorio per create")
+            after = content
+        elif kind_e == ProposalKind.REPLACE:
+            if content is None:
+                raise ValueError("content obbligatorio per replace")
+            after = content
+            if not exists:
+                kind_e = ProposalKind.CREATE
+        elif kind_e == ProposalKind.PATCH:
+            if before is None:
+                raise ValueError("Patch richiede un file esistente")
+            if not old_text:
+                raise ValueError("patch richiede old_text")
+            if new_text is None:
+                raise ValueError("patch richiede new_text")
+            if old_text not in before:
+                raise ValueError("old_text non trovato nel file (patch non applicabile)")
+            count = before.count(old_text)
+            if count != 1:
+                raise ValueError(
+                    f"old_text compare {count} volte: la patch deve essere univoca"
+                )
+            after = before.replace(old_text, new_text, 1)
+        else:
+            raise ValueError(f"kind non supportato: {kind}")
+
+        if before is not None and before == after:
+            raise ValueError("Nessuna modifica: contenuto identico")
+
+        # Parent for create must exist or be creatable under allowlist
+        if kind_e == ProposalKind.CREATE:
+            parent = target.parent
+            if not parent.exists():
+                # only allow single-level create under existing parent in allowlist
+                if not parent.parent.exists():
+                    raise ValueError("Directory padre assente: crea prima la cartella manualmente")
+                # We'll create parent only if under allowlist
+                pdec = self.path_guard.resolve(str(parent), for_read=True)
+                if not pdec.allowed:
+                    raise PermissionError("Directory padre non autorizzata")
+
+        prop = WriteProposal(
+            id=secrets.token_hex(8),
+            user_id=user_id,
+            actor=actor,
+            path=str(target),
+            kind=kind_e,
+            content_before=before,
+            content_after=after,
+            patch_old=old_text,
+            patch_new=new_text,
+            purpose=purpose or f"{kind_e.value} {target.name}",
+            risk="medium" if in_zone else "high",
+            expected_hash=_sha256_text(after),
+            in_trust_zone=in_zone,
+            requires_strong=not in_zone,
+        )
+        with self._lock:
+            self._proposals[prop.id] = prop
+
+        self.audit(
+            "write_proposed",
+            actor,
+            redact_obj(
+                {
+                    "proposal_id": prop.id,
+                    "path": prop.path,
+                    "kind": prop.kind.value,
+                    "user_id": user_id,
+                    "in_trust_zone": in_zone,
+                    "diff": prop._diff_summary(),
+                }
+            ),
+        )
+        return prop.to_public(include_full=True)
+
+    def reject(self, proposal_id: str, *, actor: str, user_id: int) -> dict[str, Any]:
+        prop = self.get(proposal_id)
+        if not prop:
+            raise KeyError("Proposta non trovata")
+        if prop.user_id != user_id and user_id:
+            # operators may reject any — caller checks
+            pass
+        if prop.status != ProposalStatus.PENDING:
+            raise ValueError(f"Proposta non pending (stato={prop.status.value})")
+        prop.status = ProposalStatus.REJECTED
+        prop.decided_at = _now().isoformat()
+        self.audit(
+            "write_rejected",
+            actor,
+            {"proposal_id": proposal_id, "path": prop.path, "user_id": user_id},
+        )
+        return prop.to_public(include_full=False)
+
+    def _snapshot_file(self, path: Path, proposal_id: str) -> str | None:
+        if not path.exists() or not path.is_file():
+            return None
+        dest = self.snap_dir / f"{proposal_id}_{path.name}.bak"
+        shutil.copy2(path, dest)
+        return str(dest)
+
+    def approve(
+        self,
+        proposal_id: str,
+        *,
+        actor: str,
+        user_id: int,
+        role: str,
+        confirm: bool = False,
+        strong_confirmation: str = "",
+    ) -> dict[str, Any]:
+        prop = self.get(proposal_id)
+        if not prop:
+            raise KeyError("Proposta non trovata")
+        if prop.status != ProposalStatus.PENDING:
+            raise ValueError(f"Proposta non pending (stato={prop.status.value})")
+
+        effective = self.privileges.effective_level(role, user_id)
+        self._assert_writable_mode(effective)
+
+        if not confirm:
+            raise PermissionError("Serve confirm=true per approvare la scrittura")
+
+        if prop.requires_strong or not prop.in_trust_zone:
+            phrase = self.privileges.strong_phrase
+            if strong_confirmation.strip() != phrase:
+                raise PermissionError(
+                    f"Fuori trust zone: digita esattamente la frase forte: {phrase}"
+                )
+
+        # Path re-check at apply time
+        target = self._resolve_write_path(prop.path)
+        elev = self.privileges.get_elevation(user_id)
+        if elev and elev.scope_path:
+            try:
+                scope = Path(elev.scope_path).expanduser().resolve()
+                target.resolve().relative_to(scope)
+            except (ValueError, OSError) as exc:
+                raise PermissionError(
+                    "Path fuori dallo scope dell'elevazione temporanea"
+                ) from exc
+
+        # Backup
+        backup = self._snapshot_file(target, prop.id)
+        prop.backup_path = backup
+
+        try:
+            if prop.kind == ProposalKind.CREATE:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    raise RuntimeError("File creato nel frattempo: abort")
+            # Atomic-ish write (bytes = exact content, no newline translation)
+            tmp = target.with_name(target.name + f".tauros_tmp_{prop.id}")
+            payload = prop.content_after.encode("utf-8")
+            tmp.write_bytes(payload)
+            tmp.replace(target)
+
+            # Verify
+            written_bytes = target.read_bytes()
+            written = written_bytes.decode("utf-8")
+            got = _sha256_text(written)
+            exp = prop.expected_hash or _sha256_text(prop.content_after)
+            if got != exp:
+                raise RuntimeError(
+                    f"Verifica hash fallita: atteso {exp[:12]}… ottenuto {got[:12]}…"
+                )
+            prop.result_hash = got
+            prop.status = ProposalStatus.APPLIED
+            prop.decided_at = _now().isoformat()
+            prop.error = None
+        except Exception as exc:  # noqa: BLE001
+            prop.error = str(exc)
+            prop.status = ProposalStatus.FAILED
+            prop.decided_at = _now().isoformat()
+            # Rollback
+            if backup and Path(backup).exists():
+                try:
+                    shutil.copy2(backup, target)
+                    prop.status = ProposalStatus.ROLLED_BACK
+                except OSError as rb_exc:
+                    prop.error = f"{exc}; rollback fallito: {rb_exc}"
+            elif prop.kind == ProposalKind.CREATE and target.exists():
+                try:
+                    target.unlink()
+                    prop.status = ProposalStatus.ROLLED_BACK
+                except OSError:
+                    pass
+            self.audit(
+                "write_failed",
+                actor,
+                redact_obj(
+                    {
+                        "proposal_id": prop.id,
+                        "path": prop.path,
+                        "error": prop.error,
+                        "backup_path": backup,
+                        "status": prop.status.value,
+                    }
+                ),
+            )
+            raise RuntimeError(prop.error) from exc
+
+        self.privileges.mark_single_op_used(user_id)
+        self.audit(
+            "write_applied",
+            actor,
+            redact_obj(
+                {
+                    "proposal_id": prop.id,
+                    "path": prop.path,
+                    "kind": prop.kind.value,
+                    "backup_path": backup,
+                    "result_hash": prop.result_hash,
+                    "user_id": user_id,
+                    "role": role,
+                    "effective_level": effective.name,
+                    "in_trust_zone": prop.in_trust_zone,
+                }
+            ),
+        )
+        return prop.to_public(include_full=True)
+
+    def restore_backup(
+        self,
+        *,
+        path: str,
+        backup_path: str,
+        user_id: int,
+        actor: str,
+        role: str,
+        strong_confirmation: str,
+    ) -> dict[str, Any]:
+        effective = self.privileges.effective_level(role, user_id)
+        self._assert_writable_mode(effective)
+        if strong_confirmation.strip() != self.privileges.strong_phrase:
+            raise PermissionError(
+                f"Ripristino richiede frase forte: {self.privileges.strong_phrase}"
+            )
+        target = self._resolve_write_path(path)
+        src = Path(backup_path)
+        # Backup must live under our snap dir
+        try:
+            src.resolve().relative_to(self.snap_dir.resolve())
+        except ValueError as exc:
+            raise PermissionError("Backup path non valido (fuori file_snaps)") from exc
+        if not src.is_file():
+            raise FileNotFoundError("Backup non trovato")
+        pre = self._snapshot_file(target, f"restore_{secrets.token_hex(4)}")
+        shutil.copy2(src, target)
+        self.audit(
+            "write_restored",
+            actor,
+            {
+                "path": str(target),
+                "from_backup": str(src),
+                "pre_restore_backup": pre,
+                "user_id": user_id,
+            },
+        )
+        return {
+            "ok": True,
+            "path": str(target),
+            "restored_from": str(src),
+            "pre_restore_backup": pre,
+        }
+
+    def snapshot(
+        self, path: str, *, user_id: int, actor: str, role: str
+    ) -> dict[str, Any]:
+        effective = self.privileges.effective_level(role, user_id)
+        if effective < PrivilegeLevel.OPERATOR:
+            raise PermissionError("Snapshot richiede almeno OPERATOR")
+        target = self._resolve_write_path(path)
+        if not target.is_file():
+            raise FileNotFoundError(f"File non trovato: {target}")
+        snap_id = secrets.token_hex(6)
+        dest = self._snapshot_file(target, snap_id)
+        self.audit(
+            "file_snapshot",
+            actor,
+            {"path": str(target), "backup_path": dest, "user_id": user_id},
+        )
+        return {"ok": True, "path": str(target), "backup_path": dest, "snapshot_id": snap_id}
+

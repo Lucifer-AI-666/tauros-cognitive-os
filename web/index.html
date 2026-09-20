@@ -1,0 +1,1694 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c1016" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="description" content="TAUROS Cognitive OS — memoria, policy, audit e chat. Installabile come app." />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="TAUROS" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+  <title>TAUROS · Cognitive Console</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07090c;
+      --bg2: #0c1016;
+      --panel: #10151d;
+      --panel2: #151c27;
+      --line: #243041;
+      --line2: #334155;
+      --text: #e8eef7;
+      --muted: #8b9bb0;
+      --faint: #5d6d82;
+      --accent: #d4a24c;
+      --accent2: #f0c674;
+      --good: #3ecf8e;
+      --warn: #e6b84d;
+      --bad: #f07178;
+      --info: #6cb6ff;
+      --violet: #a78bfa;
+      --radius: 14px;
+      --shadow: 0 12px 40px rgba(0,0,0,.35);
+      --font: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+      --mono: "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font: 14.5px/1.45 var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(212,162,76,.08), transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, rgba(108,182,255,.06), transparent 50%),
+        var(--bg);
+      overflow: hidden;
+    }
+    button, input, textarea, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    .app {
+      height: 100%;
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      grid-template-rows: 64px minmax(0, 1fr);
+    }
+    /* TOPBAR */
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(12,16,22,.92);
+      backdrop-filter: blur(10px);
+    }
+    .brand {
+      display: flex; align-items: center; gap: 12px; min-width: 220px;
+    }
+    .mark {
+      width: 36px; height: 36px; border-radius: 11px;
+      background: linear-gradient(145deg, #f0c674, #a86b1c 55%, #3a2a12);
+      display: grid; place-items: center;
+      color: #1a1206; font-weight: 800; letter-spacing: .04em;
+      box-shadow: 0 0 0 1px rgba(240,198,116,.35), 0 8px 24px rgba(212,162,76,.2);
+    }
+    .brand h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+    .brand small { color: var(--muted); font-size: 11px; display: block; margin-top: 1px; }
+    .top-meta { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid var(--line); background: var(--panel);
+      border-radius: 999px; padding: 5px 10px; font-size: 12px; color: var(--muted);
+    }
+    .pill b { color: var(--text); font-weight: 600; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+    .dot.on { background: var(--good); box-shadow: 0 0 0 3px rgba(62,207,142,.15); }
+    .dot.warn { background: var(--warn); }
+    .dot.off { background: var(--bad); }
+    .top-actions { display: flex; gap: 8px; align-items: center; }
+    .btn {
+      border: 1px solid var(--line2); background: var(--panel2); color: var(--text);
+      border-radius: 10px; padding: 8px 12px; font-weight: 600; font-size: 13px;
+      transition: .15s ease;
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent2); }
+    .btn.primary {
+      background: linear-gradient(180deg, #e0b35a, #b8872f);
+      color: #1a1206; border-color: transparent;
+    }
+    .btn.primary:hover { filter: brightness(1.05); color: #1a1206; }
+    .btn.ghost { background: transparent; }
+    .btn.danger { border-color: rgba(240,113,120,.4); color: #ffb4b8; }
+    .btn.sm { padding: 5px 9px; font-size: 12px; border-radius: 8px; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .hidden { display: none !important; }
+    .install-banner {
+      display: none; align-items: center; justify-content: space-between; gap: 12px;
+      margin: 0 0 14px; padding: 12px 14px; border-radius: 12px;
+      border: 1px solid rgba(212,162,76,.35); background: rgba(212,162,76,.08);
+    }
+    .install-banner.show { display: flex; }
+    .install-banner p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    /* SIDEBAR */
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: var(--bg2);
+      padding: 14px 12px;
+      display: flex; flex-direction: column; gap: 6px;
+      overflow: auto;
+    }
+    .nav-label {
+      margin: 12px 10px 6px; font-size: 10px; letter-spacing: .14em;
+      text-transform: uppercase; color: var(--faint); font-weight: 700;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; text-align: left; border: 0; background: transparent;
+      color: var(--muted); border-radius: 11px; padding: 10px 12px; font-weight: 600;
+    }
+    .nav-item:hover { background: rgba(255,255,255,.03); color: var(--text); }
+    .nav-item.active {
+      background: linear-gradient(90deg, rgba(212,162,76,.16), transparent);
+      color: var(--accent2);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .nav-item .ico { width: 18px; text-align: center; opacity: .9; }
+    .nav-item .badge {
+      margin-left: auto; min-width: 20px; text-align: center;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 999px; font-size: 11px; padding: 1px 6px; color: var(--muted);
+    }
+    .sidebar-foot {
+      margin-top: auto; padding: 12px; border-top: 1px solid var(--line);
+      color: var(--faint); font-size: 11px; line-height: 1.5;
+    }
+
+    /* MAIN */
+    .main {
+      min-width: 0; min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr);
+    }
+    .view { display: none; height: 100%; min-height: 0; }
+    .view.active { display: grid; }
+    .panel-scroll { overflow: auto; padding: 22px; }
+    .view-head {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 16px; margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .view-head h2 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+    .view-head p { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+
+    /* CARDS / GRID */
+    .grid { display: grid; gap: 14px; }
+    .grid.stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid.two { grid-template-columns: 1.2fr .8fr; }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,.02), transparent), var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .card h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .stat-value { font-size: 30px; font-weight: 750; letter-spacing: -.03em; }
+    .stat-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .list { display: flex; flex-direction: column; gap: 8px; }
+    .row-item {
+      border: 1px solid var(--line); background: var(--panel2);
+      border-radius: 12px; padding: 12px 13px;
+    }
+    .row-item .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+    .tag {
+      font-size: 11px; border-radius: 999px; padding: 2px 8px;
+      border: 1px solid var(--line); color: var(--muted); background: rgba(0,0,0,.2);
+    }
+    .tag.good { color: #9af0c5; border-color: rgba(62,207,142,.35); }
+    .tag.warn { color: #f5d78a; border-color: rgba(230,184,77,.35); }
+    .tag.bad { color: #ffb4b8; border-color: rgba(240,113,120,.35); }
+    .tag.info { color: #b7d9ff; border-color: rgba(108,182,255,.35); }
+    .tag.violet { color: #d4c4ff; border-color: rgba(167,139,250,.35); }
+    .mono { font-family: var(--mono); font-size: 12px; }
+    .muted { color: var(--muted); }
+    .faint { color: var(--faint); }
+    pre.dump {
+      margin: 0; white-space: pre-wrap; word-break: break-word;
+      font-family: var(--mono); font-size: 11.5px; color: #c7d2e0;
+      background: #0a0e14; border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+      max-height: 220px; overflow: auto;
+    }
+
+    /* FORMS */
+    .field { display: grid; gap: 6px; margin-bottom: 12px; }
+    .field label { font-size: 12px; color: var(--muted); font-weight: 600; }
+    .field input, .field textarea, .field select {
+      width: 100%; background: #0a0e14; border: 1px solid var(--line);
+      border-radius: 10px; padding: 10px 12px; outline: none;
+    }
+    .field input:focus, .field textarea:focus, .field select:focus {
+      border-color: rgba(212,162,76,.55); box-shadow: 0 0 0 3px rgba(212,162,76,.12);
+    }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+    /* CHAT VIEW */
+    .chat-layout {
+      height: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      min-height: 0;
+    }
+    .chat-main {
+      display: grid; grid-template-rows: 1fr auto; min-height: 0; border-right: 1px solid var(--line);
+    }
+    .messages {
+      overflow: auto; padding: 22px 24px 10px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .msg {
+      max-width: 820px; border-radius: 16px; padding: 14px 16px;
+      border: 1px solid var(--line); white-space: pre-wrap; line-height: 1.55;
+    }
+    .msg.user {
+      align-self: flex-end; background: linear-gradient(180deg, #1a2433, #141b26);
+      border-color: #2d3d55;
+    }
+    .msg.assistant {
+      align-self: flex-start; background: linear-gradient(180deg, #14181f, #10141a);
+    }
+    .msg .who {
+      font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--faint); margin-bottom: 6px; font-weight: 700;
+    }
+    .composer {
+      border-top: 1px solid var(--line); padding: 14px 16px;
+      background: rgba(10,14,20,.9); display: grid; gap: 10px;
+    }
+    .composer-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+    .composer textarea {
+      width: 100%; min-height: 72px; max-height: 180px; resize: vertical;
+      background: #0a0e14; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+    }
+    .composer-opts { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+    .composer-opts label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .trace-pane {
+      min-height: 0; overflow: auto; padding: 16px; background: var(--bg2);
+    }
+    .trace-pane h3 {
+      margin: 16px 0 8px; font-size: 11px; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--faint);
+    }
+    .trace-pane h3:first-child { margin-top: 0; }
+    .empty {
+      color: var(--faint); padding: 18px; text-align: center;
+      border: 1px dashed var(--line); border-radius: 12px;
+    }
+
+    /* MEMORY TABLE-ISH */
+    .mem-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .split-head { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 14px; }
+    .split-head .field { margin: 0; flex: 1; min-width: 160px; }
+
+    .toast {
+      position: fixed; right: 18px; bottom: 18px; z-index: 50;
+      background: #121820; border: 1px solid var(--line2); border-radius: 12px;
+      padding: 12px 14px; box-shadow: var(--shadow); max-width: 360px;
+      transform: translateY(120%); opacity: 0; transition: .25s ease;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    .conn-form {
+      display: grid; gap: 10px; max-width: 520px;
+    }
+
+    @media (max-width: 1200px) {
+      .grid.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+      .chat-layout { grid-template-columns: 1fr; }
+      .trace-pane { display: none; }
+    }
+    @media (max-width: 820px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .brand { min-width: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">T</div>
+        <div>
+          <h1>TAUROS</h1>
+          <small>Cognitive Operations Console</small>
+        </div>
+      </div>
+      <div class="top-meta">
+        <span class="pill"><span class="dot" id="connDot"></span> <span id="connLabel">Offline</span></span>
+        <span class="pill">v <b id="verLabel">—</b></span>
+        <span class="pill">provider <b id="provLabel">—</b></span>
+        <span class="pill">mode <b id="modeLabel">—</b></span>
+      </div>
+      <div class="top-actions">
+        <button class="btn ghost hidden" id="btnInstall" type="button" title="Installa sul dispositivo">Installa app</button>
+        <button class="btn ghost" id="btnConnect" type="button">Connetti</button>
+        <button class="btn primary" id="btnRefresh" type="button">Aggiorna</button>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <div class="nav-label">Operazioni</div>
+      <button class="nav-item active" data-view="overview"><span class="ico">◈</span> Overview</button>
+      <button class="nav-item" data-view="chat"><span class="ico">◉</span> Chat</button>
+      <button class="nav-item" data-view="memory"><span class="ico">▣</span> Memoria <span class="badge" id="badgeMem">0</span></button>
+      <button class="nav-item" data-view="loops"><span class="ico">↻</span> Open loops <span class="badge" id="badgeLoops">0</span></button>
+      <button class="nav-item" data-view="decisions"><span class="ico">◇</span> Decisioni</button>
+      <button class="nav-item" data-view="brief"><span class="ico">◎</span> Brief</button>
+      <button class="nav-item" data-view="writes"><span class="ico">✎</span> Scritture <span class="badge" id="badgeWrites">0</span></button>
+      <div class="nav-label">Sistema</div>
+      <button class="nav-item" data-view="audit"><span class="ico">☰</span> Audit</button>
+      <button class="nav-item" data-view="rules"><span class="ico">⚖</span> Regole</button>
+      <button class="nav-item" data-view="security"><span class="ico">⬡</span> Sicurezza</button>
+      <button class="nav-item" data-view="settings"><span class="ico">⚙</span> Connessione</button>
+      <div class="sidebar-foot">
+        Il modello propone. La policy decide.<br>
+        L’esecutore agisce. L’audit registra.
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- OVERVIEW -->
+      <section class="view active panel-scroll" id="view-overview">
+        <div class="install-banner" id="installBanner">
+          <p><b>Installa TAUROS</b> sul telefono o PC come app (PWA). Funziona offline sulla shell; chat e memoria richiedono il server.</p>
+          <div class="toolbar">
+            <button class="btn primary sm" id="btnInstallBanner" type="button">Installa</button>
+            <button class="btn sm" id="btnDismissInstall" type="button">Dopo</button>
+          </div>
+        </div>
+        <div class="view-head">
+          <div>
+            <h2>Overview</h2>
+            <p>Stato operativo di memoria, open loops, decisioni e integrità. Nessuna catena di pensiero privata: solo telemetria controllabile.</p>
+          </div>
+        </div>
+        <div class="grid stats" id="statCards"></div>
+        <div class="grid two" style="margin-top:14px">
+          <div class="card">
+            <h3>Open loops prioritari</h3>
+            <div class="list" id="ovLoops"></div>
+          </div>
+          <div class="card">
+            <h3>Candidate in attesa</h3>
+            <div class="list" id="ovCands"></div>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:14px">
+          <div class="card">
+            <h3>Memorie per tipo</h3>
+            <div class="list" id="ovKinds"></div>
+          </div>
+          <div class="card">
+            <h3>Audit recente</h3>
+            <div class="list" id="ovAudit"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CHAT -->
+      <section class="view" id="view-chat">
+        <div class="chat-layout">
+          <div class="chat-main">
+            <div class="messages" id="messages">
+              <div class="msg assistant">
+                <div class="who">TAUROS</div>
+                Console pronta. Memoria, policy e audit restano locali. Il provider LLM è intercambiabile.
+              </div>
+            </div>
+            <div class="composer">
+              <div class="composer-opts">
+                <label><input type="checkbox" id="optTools" checked /> Usa tool</label>
+                <label><input type="checkbox" id="optAutoMem" checked /> Auto-memoria (candidate)</label>
+                <label><input type="checkbox" id="optStream" checked /> Stream</label>
+                <span class="faint mono" id="chatStatus">idle</span>
+              </div>
+              <div class="composer-row">
+                <textarea id="message" placeholder="Scrivi a TAUROS…  (Ctrl+Enter per inviare)"></textarea>
+                <button class="btn ghost" id="btnMic" type="button" title="Dettatura (STT)" style="height:44px">🎤</button>
+                <button class="btn primary" id="btnSend" type="button" style="height:44px;min-width:110px">Invia</button>
+              </div>
+            </div>
+          </div>
+          <aside class="trace-pane">
+            <h3>Traccia cognitiva</h3>
+            <div class="row-item"><span class="muted">Intento</span><div id="trIntent" class="mono" style="margin-top:6px">—</div></div>
+            <h3>Piano</h3>
+            <div id="trPlan"><div class="empty">Nessun piano</div></div>
+            <h3>Memorie usate</h3>
+            <div id="trMem"><div class="empty">—</div></div>
+            <h3>Candidate</h3>
+            <div id="trCand"><div class="empty">—</div></div>
+            <h3>Tool</h3>
+            <div id="trTools"><div class="empty">—</div></div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- MEMORY -->
+      <section class="view panel-scroll" id="view-memory">
+        <div class="view-head">
+          <div>
+            <h2>Memoria viva</h2>
+            <p>Candidate non sono verità. Conferma, correggi o dimentica. Hard recall usa solo lo stato <b>active</b>.</p>
+          </div>
+          <div class="toolbar">
+            <button class="btn" id="btnLoadMem" type="button">Ricarica</button>
+            <button class="btn" id="btnLoadCand" type="button">Solo candidate</button>
+          </div>
+        </div>
+        <div class="split-head">
+          <div class="field">
+            <label>Cerca (FTS)</label>
+            <input id="memQ" placeholder="es. preferisco, progetto, ollama…" />
+          </div>
+          <div class="field" style="max-width:160px">
+            <label>Filtro stato</label>
+            <select id="memStatus">
+              <option value="">tutti (lista)</option>
+              <option value="active">active</option>
+              <option value="candidate">candidate</option>
+              <option value="disputed">disputed</option>
+              <option value="superseded">superseded</option>
+            </select>
+          </div>
+          <button class="btn primary" id="btnSearchMem" type="button">Cerca</button>
+        </div>
+        <div class="card" style="margin-bottom:14px">
+          <h3>Aggiungi memoria confermata</h3>
+          <div class="field-row">
+            <div class="field"><label>Contenuto</label><input id="newMemContent" placeholder="Fatto o preferenza…" /></div>
+            <div class="field"><label>Tipo</label>
+              <select id="newMemKind">
+                <option>fact</option><option>preference</option><option>project</option>
+                <option>person</option><option>lesson</option><option>decision</option>
+                <option>open_loop</option><option>event</option><option>temporary</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn primary sm" id="btnAddMem" type="button">Salva active</button>
+        </div>
+        <div class="list" id="memList"></div>
+      </section>
+
+      <!-- LOOPS -->
+      <section class="view panel-scroll" id="view-loops">
+        <div class="view-head">
+          <div>
+            <h2>Open loops</h2>
+            <p>Cose lasciate a metà. Candidate e active. Conferma per promuoverle a lavoro reale.</p>
+          </div>
+          <button class="btn" id="btnLoadLoops" type="button">Ricarica</button>
+        </div>
+        <div class="list" id="loopList"></div>
+      </section>
+
+      <!-- DECISIONS -->
+      <section class="view panel-scroll" id="view-decisions">
+        <div class="view-head">
+          <div>
+            <h2>Diario decisionale</h2>
+            <p>Decisioni con motivazione e stato. Continuazione cognitiva, non chat sparsa.</p>
+          </div>
+          <button class="btn" id="btnLoadDec" type="button">Ricarica</button>
+        </div>
+        <div class="card" style="margin-bottom:14px">
+          <h3>Nuova decisione</h3>
+          <div class="field"><label>Titolo</label><input id="decTitle" /></div>
+          <div class="field"><label>Motivazione</label><textarea id="decWhy" rows="3"></textarea></div>
+          <div class="field"><label>Esito (opz.)</label><input id="decOut" /></div>
+          <button class="btn primary sm" id="btnAddDec" type="button">Registra</button>
+        </div>
+        <div class="list" id="decList"></div>
+      </section>
+
+      <!-- BRIEF -->
+      <section class="view panel-scroll" id="view-brief">
+        <div class="view-head">
+          <div>
+            <h2>Brief di continuità</h2>
+            <p>Open loops, decisioni aperte, candidate e telemetria. Continuazione cognitiva del giorno.</p>
+          </div>
+          <div class="toolbar">
+            <button class="btn primary" id="btnLoadBrief" type="button">Genera brief</button>
+            <button class="btn" id="btnConsolidate" type="button">Consolida memoria</button>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:14px">
+          <h3>Narrativa</h3>
+          <pre id="briefNarrative" class="mono" style="white-space:pre-wrap;margin:0;color:var(--muted)">—</pre>
+        </div>
+        <div class="grid two">
+          <div class="card"><h3>Open loops</h3><div class="list" id="briefLoops"></div></div>
+          <div class="card"><h3>Decisioni open / revisit</h3><div class="list" id="briefDec"></div></div>
+        </div>
+        <div class="card" style="margin-top:14px"><h3>Candidate</h3><div class="list" id="briefCand"></div></div>
+      </section>
+
+      <!-- AUDIT -->
+      <section class="view panel-scroll" id="view-audit">
+        <div class="view-head">
+          <div>
+            <h2>Audit</h2>
+            <p>Registro eventi. I segreti vengono redatti lato server.</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="faint mono" id="auditChainStatus"></span>
+            <button class="btn" id="btnVerifyAudit" type="button">Verifica catena</button>
+            <button class="btn" id="btnLoadAudit" type="button">Ricarica</button>
+          </div>
+        </div>
+        <div class="list" id="auditList"></div>
+      </section>
+
+      <!-- WRITES -->
+      <section class="view panel-scroll" id="view-writes">
+        <div class="view-head">
+          <div>
+            <h2>Scritture supervisionate</h2>
+            <p>Il modello propone. La policy filtra. Tu approvi. Backup + verifica + rollback automatico se fallisce.</p>
+          </div>
+          <button class="btn" id="btnLoadWrites" type="button">Ricarica</button>
+        </div>
+        <div class="card" style="margin-bottom:14px">
+          <h3>Nuova proposta manuale</h3>
+          <div class="field"><label>Path (allowlist / trust zone)</label><input id="wPath" class="mono" placeholder="C:\Users\...\file.md" /></div>
+          <div class="field-row">
+            <div class="field" style="max-width:160px"><label>Tipo</label>
+              <select id="wKind"><option value="create">create</option><option value="replace" selected>replace</option><option value="patch">patch</option></select>
+            </div>
+            <div class="field"><label>Scopo</label><input id="wPurpose" placeholder="es. aggiorna README" /></div>
+          </div>
+          <div class="field" id="wContentBox"><label>Contenuto (create/replace)</label><textarea id="wContent" rows="6" class="mono"></textarea></div>
+          <div class="field" id="wPatchBox" style="display:none">
+            <label>old_text (univoco)</label><textarea id="wOld" rows="3" class="mono"></textarea>
+            <label>new_text</label><textarea id="wNew" rows="3" class="mono"></textarea>
+          </div>
+          <button class="btn primary sm" id="btnProposeWrite" type="button">Crea bozza</button>
+        </div>
+        <div class="list" id="writesList"></div>
+        <div class="card" id="writeDetail" style="margin-top:14px;display:none">
+          <h3>Anteprima proposta <span class="mono" id="wdId"></span></h3>
+          <div class="meta" id="wdMeta" style="margin-bottom:10px"></div>
+          <div class="grid two">
+            <div>
+              <h3>Attuale</h3>
+              <pre class="dump mono" id="wdBefore" style="max-height:280px;overflow:auto"></pre>
+            </div>
+            <div>
+              <h3>Proposto</h3>
+              <pre class="dump mono" id="wdAfter" style="max-height:280px;overflow:auto"></pre>
+            </div>
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label>Frase forte (obbligatoria fuori trust zone)</label>
+            <input id="wdStrong" placeholder="CONFERMO ADMIN" autocomplete="off" />
+          </div>
+          <div class="toolbar" style="margin-top:10px">
+            <button class="btn primary" id="btnApproveWrite" type="button">Approva e scrivi</button>
+            <button class="btn danger" id="btnRejectWrite" type="button">Rifiuta</button>
+          </div>
+          <p class="muted" id="wdHint">Prima eleva ad ADMINISTRATOR se sei operator. Poi approva.</p>
+        </div>
+      </section>
+
+      <!-- RULES -->
+      <section class="view panel-scroll" id="view-rules">
+        <div class="view-head">
+          <div>
+            <h2>Finestra regole</h2>
+            <p>Il modello propone. Queste regole possono ancora dire no. Deny vince sempre.</p>
+          </div>
+          <button class="btn" id="btnLoadRules" type="button">Ricarica</button>
+        </div>
+        <div class="card" style="margin-bottom:14px">
+          <h3>Nuova regola</h3>
+          <div class="field-row">
+            <div class="field" style="max-width:140px"><label>Effetto</label>
+              <select id="ruleEffect">
+                <option value="deny">deny</option>
+                <option value="confirm">confirm</option>
+                <option value="allow">allow</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:140px"><label>Match</label>
+              <select id="ruleMatch">
+                <option value="tool">tool</option>
+                <option value="path">path</option>
+              </select>
+            </div>
+            <div class="field"><label>Valore</label><input id="ruleValue" class="mono" placeholder="delete_file oppure C:\Windows" /></div>
+          </div>
+          <div class="field"><label>Nota</label><input id="ruleNote" placeholder="perché esiste questa regola" /></div>
+          <div class="toolbar"><button class="btn primary sm" id="btnAddRule" type="button">Aggiungi</button></div>
+        </div>
+        <div class="card" style="margin-bottom:14px" id="rulesList"><div class="empty">—</div></div>
+        <div class="card">
+          <h3>Prova una azione</h3>
+          <div class="field-row">
+            <div class="field"><label>Tool</label><input id="evalTool" class="mono" value="delete_file" /></div>
+            <div class="field"><label>Path (opz.)</label><input id="evalPath" class="mono" placeholder="C:\..." /></div>
+          </div>
+          <div class="toolbar"><button class="btn sm" id="btnEvalRule" type="button">Valuta</button></div>
+          <div class="mono" id="evalOut" style="margin-top:8px;color:var(--muted)">—</div>
+        </div>
+      </section>
+
+      <!-- SECURITY -->
+      <section class="view panel-scroll" id="view-security">
+        <div class="view-head">
+          <div>
+            <h2>Sicurezza &amp; privilegi</h2>
+            <p>Modalità, allowlist, elevazione temporanea. Nessun god mode permanente.</p>
+          </div>
+          <button class="btn" id="btnLoadSec" type="button">Ricarica</button>
+        </div>
+        <div class="card" style="margin-bottom:14px" id="elevCard">
+          <h3>Elevazione temporanea</h3>
+          <p class="muted">Più potere → più responsabilità. Scade. Audit sempre.</p>
+          <div id="elevStatus" class="list" style="margin-bottom:12px"><div class="empty">—</div></div>
+          <div class="field-row">
+            <div class="field" style="max-width:200px"><label>Livello</label>
+              <select id="elevLevel">
+                <option value="OPERATOR">OPERATOR</option>
+                <option value="ADMINISTRATOR" selected>ADMINISTRATOR</option>
+                <option value="CONTROLLED_ROOT">CONTROLLED_ROOT</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:120px"><label>Minuti</label><input id="elevMin" type="number" value="15" min="1" max="60" /></div>
+            <div class="field"><label>Scope path (opz. trust/progetto)</label><input id="elevScope" class="mono" placeholder="path progetto" /></div>
+          </div>
+          <div class="field"><label>Motivo</label><input id="elevReason" placeholder="es. applicare patch README" /></div>
+          <div class="field"><label>Frase forte</label><input id="elevPhrase" placeholder="CONFERMO ADMIN" autocomplete="off" /></div>
+          <label style="display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--muted);font-size:13px">
+            <input type="checkbox" id="elevSingle" /> Singola operazione (si consuma all'approvazione scrittura)
+          </label>
+          <div class="toolbar">
+            <button class="btn primary sm" id="btnElevate" type="button">Eleva</button>
+            <button class="btn danger sm" id="btnRevokeElev" type="button">Revoca</button>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card" id="secCard"></div>
+          <div class="card" id="toolsCard"></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS / CONNECTION -->
+      <section class="view panel-scroll" id="view-settings">
+        <div class="view-head">
+          <div>
+            <h2>Connessione</h2>
+            <p>Token TAUROS (locale). Non la chiave Groq. Salvato solo in questo browser (localStorage).</p>
+          </div>
+        </div>
+        <div class="card conn-form">
+          <div class="field">
+            <label>API base URL</label>
+            <input id="apiUrl" value="http://127.0.0.1:8000" />
+          </div>
+          <div class="field">
+            <label>Bearer token (TAUROS_API_TOKEN)</label>
+            <input id="apiToken" type="password" placeholder="incolla token da .env / tauros init" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>Session ID</label>
+            <input id="sessionId" value="web" />
+          </div>
+        </div>
+        <div class="card conn-form" style="margin-top:14px">
+          <h3>Motore AI</h3>
+          <p class="muted">Cambio a caldo. Niente riavvio. Solo operatore.</p>
+          <div class="field">
+            <label>Modello</label>
+            <select id="brainPick"></select>
+          </div>
+          <div class="toolbar">
+            <button class="btn primary" id="btnSaveBrain" type="button">Applica modello</button>
+          </div>
+          <p class="muted mono" id="brainNow" style="margin-top:8px">—</p>
+        </div>
+        <div class="card conn-form" style="margin-top:14px">
+          <div class="toolbar">
+            <button class="btn primary" id="btnSaveConn" type="button">Salva e connetti</button>
+            <button class="btn danger" id="btnClearConn" type="button">Pulisci storage</button>
+            <button class="btn ghost" id="btnInstallSettings" type="button">Installa PWA</button>
+          </div>
+          <p class="muted" style="margin:8px 0 0">
+            <b>Dominio pubblico:</b> imposta l’URL HTTPS del server (es. <span class="mono">https://tauros.tuodominio.com</span>) e lo stesso token.<br>
+            Stesso origine = lascia l’URL del sito corrente.<br>
+            <span class="mono" id="pwaStatus">PWA: …</span>
+          </p>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+  const $ = (s, r=document) => r.querySelector(s);
+  const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+  const state = {
+    connected: false,
+    stats: null,
+    lastTrace: null,
+  };
+
+  const store = {
+    get() {
+      return {
+        api: localStorage.getItem('tauros.api') || 'http://127.0.0.1:8000',
+        token: localStorage.getItem('tauros.token') || '',
+        session: localStorage.getItem('tauros.session') || 'web',
+      };
+    },
+    set( partial ) {
+      const cur = store.get();
+      const next = { ...cur, ...partial };
+      localStorage.setItem('tauros.api', next.api);
+      localStorage.setItem('tauros.token', next.token);
+      localStorage.setItem('tauros.session', next.session);
+      return next;
+    },
+    clear() {
+      localStorage.removeItem('tauros.api');
+      localStorage.removeItem('tauros.token');
+      localStorage.removeItem('tauros.session');
+    }
+  };
+
+  function toast(msg, ms=2800) {
+    const el = $('#toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove('show'), ms);
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function headers() {
+    const { token } = store.get();
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token,
+    };
+  }
+
+  function apiBase() {
+    return store.get().api.replace(/\/$/, '');
+  }
+
+  async function api(path, opts={}) {
+    const res = await fetch(apiBase() + path, {
+      ...opts,
+      headers: { ...headers(), ...(opts.headers || {}) },
+    });
+    let data = null;
+    const text = await res.text();
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) {
+      const detail = (data && data.detail) ? data.detail : (res.statusText || 'errore');
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    }
+    return data;
+  }
+
+  function setConnUI(ok, label) {
+    state.connected = ok;
+    $('#connDot').className = 'dot ' + (ok ? 'on' : 'off');
+    $('#connLabel').textContent = label || (ok ? 'Online' : 'Offline');
+  }
+
+  function tagStatus(st) {
+    const s = (st || '').toLowerCase();
+    if (s === 'active') return 'good';
+    if (s === 'candidate') return 'warn';
+    if (s === 'forgotten' || s === 'expired') return 'bad';
+    if (s === 'disputed') return 'violet';
+    return 'info';
+  }
+
+  /* NAV */
+  function showView(name) {
+    $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+    $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+    if (name === 'overview') loadOverview();
+    if (name === 'memory') loadMemories();
+    if (name === 'loops') loadLoops();
+    if (name === 'decisions') loadDecisions();
+    if (name === 'brief') loadBrief();
+    if (name === 'writes') loadWrites();
+    if (name === 'audit') { loadAudit(); verifyAuditChain(); }
+    if (name === 'security') loadSecurity();
+    if (name === 'rules') loadRules();
+    if (name === 'settings') loadBrain();
+  }
+  $$('.nav-item').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+
+  /* CONNECT / REFRESH */
+  async function connect() {
+    try {
+      const h = await fetch(apiBase() + '/health').then(r => r.json());
+      $('#verLabel').textContent = h.version || '—';
+      $('#provLabel').textContent = (h.provider || '—') + (h.model ? ' · ' + h.model : '');
+      $('#modeLabel').textContent = h.security_mode || '—';
+      if (!store.get().token) {
+        try {
+          const local = await fetch(apiBase() + '/auth/local', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          }).then(async (r) => {
+            const t = await r.text();
+            let d; try { d = JSON.parse(t); } catch { d = null; }
+            if (!r.ok) throw new Error((d && d.detail) || t || r.statusText);
+            return d;
+          });
+          store.set({ ...store.get(), token: local.token });
+          loadConnForm();
+        } catch (err) {
+          setConnUI(false, 'Token mancante');
+          toast('Inserisci il token TAUROS in Connessione');
+          showView('settings');
+          return false;
+        }
+      }
+      // authenticated probe
+      await api('/dashboard/stats');
+      setConnUI(true, 'Online');
+      await loadBrain();
+      await loadOverview();
+      toast('Connesso a TAUROS v' + (h.version || ''));
+      return true;
+    } catch (e) {
+      setConnUI(false, 'Offline');
+      toast('Connessione fallita: ' + e.message);
+      return false;
+    }
+  }
+
+  async function loadOverview() {
+    try {
+      const s = await api('/dashboard/stats');
+      state.stats = s;
+      $('#verLabel').textContent = s.version || '—';
+      $('#provLabel').textContent = (s.provider || '—') + (s.model ? ' · ' + s.model : '');
+      $('#modeLabel').textContent = s.security_mode || '—';
+      $('#badgeMem').textContent = (s.counts.memories_active || 0) + s.counts.memories_candidate;
+      $('#badgeLoops').textContent = s.counts.open_loops || 0;
+
+      const cards = [
+        ['Memorie active', s.counts.memories_active, 'fatti confermati'],
+        ['Candidate', s.counts.memories_candidate, 'in attesa di conferma'],
+        ['Open loops', s.counts.open_loops, 'cicli aperti'],
+        ['Decisioni', s.counts.decisions, s.integrity_ok ? 'DB integrity OK' : 'DB integrity FAIL'],
+      ];
+      $('#statCards').innerHTML = cards.map(([t,v,sub]) => `
+        <div class="card">
+          <h3>${esc(t)}</h3>
+          <div class="stat-value">${esc(v)}</div>
+          <div class="stat-sub">${esc(sub)}</div>
+        </div>`).join('');
+
+      $('#ovLoops').innerHTML = s.open_loops_preview?.length
+        ? s.open_loops_preview.map(m => memRow(m, false)).join('')
+        : '<div class="empty">Nessun open loop</div>';
+      $('#ovCands').innerHTML = s.candidates_preview?.length
+        ? s.candidates_preview.map(m => memRow(m, true)).join('')
+        : '<div class="empty">Nessuna candidate</div>';
+      const kinds = Object.entries(s.memories_by_kind || {});
+      $('#ovKinds').innerHTML = kinds.length
+        ? kinds.map(([k,n]) => `<div class="row-item"><span class="tag">${esc(k)}</span> <b style="float:right">${n}</b></div>`).join('')
+        : '<div class="empty">—</div>';
+      $('#ovAudit').innerHTML = s.recent_audit?.length
+        ? s.recent_audit.map(a => `
+          <div class="row-item">
+            <div class="meta">
+              <span class="tag info">${esc(a.event_type)}</span>
+              <span class="tag">${esc(a.actor)}</span>
+              <span class="faint mono">${esc((a.created_at||'').slice(0,19))}</span>
+            </div>
+          </div>`).join('')
+        : '<div class="empty">—</div>';
+      setConnUI(true, 'Online');
+    } catch (e) {
+      setConnUI(false, 'Offline');
+    }
+  }
+
+  function memRow(m, withActions=true) {
+    return `
+      <div class="row-item" data-id="${m.id}">
+        <div class="meta">
+          <span class="tag ${tagStatus(m.status)}">${esc(m.status)}</span>
+          <span class="tag violet">${esc(m.kind)}</span>
+          <span class="tag">${esc(m.importance)}/10</span>
+          <span class="tag info">${esc(m.source || '—')}</span>
+          <span class="faint mono">#${m.id}</span>
+        </div>
+        <div>${esc(m.content)}</div>
+        ${withActions ? `
+        <div class="mem-actions">
+          ${m.status === 'candidate' ? `<button class="btn sm primary" data-act="confirm" data-id="${m.id}">Conferma</button>` : ''}
+          <button class="btn sm danger" data-act="forget" data-id="${m.id}">Dimentica</button>
+        </div>` : ''}
+      </div>`;
+  }
+
+  async function loadMemories(mode) {
+    try {
+      let items = [];
+      const q = $('#memQ').value.trim();
+      if (q) {
+        items = await api('/memories/search?q=' + encodeURIComponent(q) + '&limit=100');
+      } else {
+        const st = mode === 'candidate' ? 'candidate' : $('#memStatus').value;
+        const qs = st ? ('?status=' + encodeURIComponent(st) + '&limit=200') : '?limit=200';
+        items = await api('/memories' + qs);
+      }
+      $('#memList').innerHTML = items.length
+        ? items.map(m => memRow(m, true)).join('')
+        : '<div class="empty">Nessuna memoria</div>';
+    } catch (e) {
+      toast(e.message);
+      $('#memList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+    }
+  }
+
+  async function loadLoops() {
+    try {
+      const items = await api('/open-loops?limit=200');
+      $('#loopList').innerHTML = items.length
+        ? items.map(m => `
+      <div class="row-item" data-id="${m.id}">
+        <div class="meta">
+          <span class="tag ${tagStatus(m.status)}">${esc(m.status)}</span>
+          <span class="tag violet">open_loop</span>
+          <span class="faint mono">#${m.id}</span>
+        </div>
+        <div>${esc(m.content)}</div>
+        <div class="mem-actions">
+          ${m.status === 'candidate' ? `<button class="btn sm primary" data-act="confirm" data-id="${m.id}">Conferma</button>` : ''}
+          <button class="btn sm primary" data-act="resolve-loop" data-id="${m.id}">Chiudi loop</button>
+          <button class="btn sm danger" data-act="forget" data-id="${m.id}">Dimentica</button>
+        </div>
+      </div>`).join('')
+        : '<div class="empty">Nessun open loop</div>';
+      $('#badgeLoops').textContent = items.length;
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  async function loadBrief() {
+    try {
+      const b = await api('/brief');
+      $('#briefNarrative').textContent = b.narrative || '—';
+      const loops = b.open_loops || [];
+      const cands = b.candidates || [];
+      const decs = [...(b.decisions_open || []), ...(b.decisions_revisit || [])];
+      $('#briefLoops').innerHTML = loops.length
+        ? loops.map(m => `<div class="row-item"><div>${esc(m.content)}</div></div>`).join('')
+        : '<div class="empty">Nessun open loop</div>';
+      $('#briefCand').innerHTML = cands.length
+        ? cands.map(m => memRow(m, true)).join('')
+        : '<div class="empty">Nessuna candidate</div>';
+      $('#briefDec').innerHTML = decs.length
+        ? decs.map(d => `<div class="row-item"><div class="meta"><span class="tag">${esc(d.status)}</span></div><div><b>${esc(d.title)}</b><div class="faint">${esc(d.rationale || '')}</div></div></div>`).join('')
+        : '<div class="empty">Nessuna decisione aperta</div>';
+    } catch (e) {
+      toast(e.message);
+      $('#briefNarrative').textContent = e.message;
+    }
+  }
+
+  async function loadDecisions() {
+    try {
+      const items = await api('/decisions?limit=200');
+      $('#decList').innerHTML = items.length ? items.map(d => `
+        <div class="row-item">
+          <div class="meta">
+            <span class="tag info">${esc(d.status)}</span>
+            <span class="faint mono">#${d.id}</span>
+            <span class="faint mono">${esc((d.created_at||'').slice(0,19))}</span>
+          </div>
+          <div><b>${esc(d.title)}</b></div>
+          <div class="muted" style="margin-top:6px">${esc(d.rationale)}</div>
+          ${d.outcome ? `<div style="margin-top:6px">Esito: ${esc(d.outcome)}</div>` : ''}
+          <div class="mem-actions">
+            ${d.status === 'open' || d.status === 'revisit' ? `
+              <button class="btn sm primary" data-act="dec-status" data-id="${d.id}" data-status="accepted">Accetta</button>
+              <button class="btn sm" data-act="dec-status" data-id="${d.id}" data-status="closed">Chiudi</button>
+              <button class="btn sm" data-act="dec-status" data-id="${d.id}" data-status="revisit">Rivisita</button>
+            ` : ''}
+          </div>
+        </div>`).join('') : '<div class="empty">Nessuna decisione</div>';
+    } catch (e) { toast(e.message); }
+  }
+
+  async function loadAudit() {
+    try {
+      const items = await api('/audit?limit=100');
+      $('#auditList').innerHTML = items.length ? items.map(a => `
+        <div class="row-item">
+          <div class="meta">
+            <span class="tag info">${esc(a.event_type)}</span>
+            <span class="tag">${esc(a.actor)}</span>
+            <span class="faint mono">${esc(a.created_at||'')}</span>
+            ${a.row_hash ? `<span class="faint mono">${esc(String(a.row_hash).slice(0,12))}…</span>` : ''}
+          </div>
+          <pre class="dump">${esc(JSON.stringify(a.details, null, 2))}</pre>
+        </div>`).join('') : '<div class="empty">—</div>';
+    } catch (e) { toast(e.message); }
+  }
+
+  let selectedWriteId = null;
+
+  async function loadWrites() {
+    try {
+      const items = await api('/writes/proposals?status=pending');
+      const all = await api('/writes/proposals');
+      $('#badgeWrites').textContent = items.length;
+      $('#writesList').innerHTML = all.length ? all.map(p => `
+        <div class="row-item" style="cursor:pointer" data-act="open-write" data-id="${esc(p.id)}">
+          <div class="meta">
+            <span class="tag ${p.status==='pending'?'warn':(p.status==='applied'?'good':'info')}">${esc(p.status)}</span>
+            <span class="tag violet">${esc(p.kind)}</span>
+            <span class="tag">${esc(p.risk)}</span>
+            ${p.in_trust_zone ? '<span class="tag good">trust zone</span>' : '<span class="tag bad">fuori zona</span>'}
+            <span class="faint mono">${esc(p.id)}</span>
+          </div>
+          <div class="mono" style="font-size:13px">${esc(p.path)}</div>
+          <div class="muted">${esc(p.purpose||'')} · ${esc((p.diff_summary&& (p.diff_summary.chars_before+'→'+p.diff_summary.chars_after))||'')}</div>
+        </div>`).join('') : '<div class="empty">Nessuna proposta scrittura</div>';
+    } catch (e) { toast(e.message); }
+  }
+
+  async function openWrite(id) {
+    selectedWriteId = id;
+    try {
+      const p = await api('/writes/proposals/' + encodeURIComponent(id));
+      $('#writeDetail').style.display = 'block';
+      $('#wdId').textContent = p.id;
+      $('#wdMeta').innerHTML = `
+        <span class="tag">${esc(p.status)}</span>
+        <span class="tag violet">${esc(p.kind)}</span>
+        ${p.requires_strong ? '<span class="tag bad">serve frase forte</span>' : '<span class="tag good">trust zone</span>'}
+        <div class="mono" style="margin-top:8px">${esc(p.path)}</div>
+        <div class="muted">${esc(p.purpose||'')}</div>`;
+      $('#wdBefore').textContent = p.content_before == null ? '(file assente — create)' : p.content_before;
+      $('#wdAfter').textContent = p.content_after || '';
+      $('#wdHint').textContent = p.status === 'pending'
+        ? (p.requires_strong
+          ? 'Fuori trust zone: eleva se serve, poi digita CONFERMO ADMIN e Approva.'
+          : 'In trust zone: eleva ad ADMINISTRATOR se operator, poi Approva (confirm).')
+        : 'Stato: ' + p.status + (p.backup_path ? ' · backup: ' + p.backup_path : '');
+    } catch (e) { toast(e.message); }
+  }
+
+  async function loadRules() {
+    try {
+      const data = await api('/rules');
+      const rules = data.rules || [];
+      $('#rulesList').innerHTML = rules.length ? rules.map(r => `
+        <div class="row-item">
+          <div class="meta">
+            <span class="tag ${r.effect==='deny'?'bad':(r.effect==='confirm'?'warn':'good')}">${esc(r.effect)}</span>
+            <span class="tag violet">${esc(r.match)}</span>
+            <span class="mono">${esc(r.value)}</span>
+            ${r.enabled ? '' : '<span class="tag">off</span>'}
+          </div>
+          <div class="muted">${esc(r.note||r.id)}</div>
+          <div class="toolbar" style="margin-top:6px">
+            <button class="btn sm" data-rule-toggle="${esc(r.id)}" data-on="${r.enabled?0:1}">${r.enabled?'Disattiva':'Attiva'}</button>
+            <button class="btn danger sm" data-rule-del="${esc(r.id)}">Elimina</button>
+          </div>
+        </div>`).join('') : '<div class="empty">Nessuna regola utente</div>';
+    } catch (e) { toast(e.message); }
+  }
+
+  $('#btnLoadRules') && ($('#btnLoadRules').onclick = loadRules);
+  $('#btnAddRule') && ($('#btnAddRule').onclick = async () => {
+    try {
+      await api('/rules', { method: 'POST', body: JSON.stringify({
+        effect: $('#ruleEffect').value,
+        match: $('#ruleMatch').value,
+        value: $('#ruleValue').value.trim(),
+        note: $('#ruleNote').value.trim(),
+        enabled: true,
+      })});
+      $('#ruleValue').value = '';
+      $('#ruleNote').value = '';
+      toast('Regola aggiunta');
+      loadRules();
+    } catch (e) { toast(e.message); }
+  });
+  $('#btnEvalRule') && ($('#btnEvalRule').onclick = async () => {
+    try {
+      const r = await api('/rules/evaluate', { method: 'POST', body: JSON.stringify({
+        tool: $('#evalTool').value.trim(),
+        path: $('#evalPath').value.trim() || null,
+      })});
+      $('#evalOut').textContent = JSON.stringify(r, null, 2);
+    } catch (e) { toast(e.message); }
+  });
+  document.addEventListener('click', async (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    const del = t.getAttribute('data-rule-del');
+    const tog = t.getAttribute('data-rule-toggle');
+    try {
+      if (del) {
+        await api('/rules/' + encodeURIComponent(del), { method: 'DELETE' });
+        toast('Regola tolta');
+        loadRules();
+      }
+      if (tog) {
+        await api('/rules/' + encodeURIComponent(tog), {
+          method: 'PATCH',
+          body: JSON.stringify({ enabled: t.getAttribute('data-on') === '1' }),
+        });
+        loadRules();
+      }
+    } catch (e) { toast(e.message); }
+  });
+
+  async function loadSecurity() {
+    try {
+      const [sec, toolsList, priv] = await Promise.all([
+        api('/security'),
+        api('/tools'),
+        api('/privileges'),
+      ]);
+      const elev = priv.elevation;
+      $('#elevStatus').innerHTML = `
+        <div class="row-item">Ruolo <b style="float:right">${esc(priv.role)}</b></div>
+        <div class="row-item">Base <b style="float:right">${esc(priv.base_level)}</b></div>
+        <div class="row-item">Effettivo <b style="float:right">${esc(priv.effective_level)}</b></div>
+        <div class="row-item">Elevazione <b style="float:right">${elev ? (esc(elev.level)+' · '+elev.seconds_remaining+'s') : 'nessuna'}</b></div>
+        ${elev && elev.scope_path ? `<div class="row-item mono">scope ${esc(elev.scope_path)}</div>` : ''}
+        <div class="row-item muted" style="font-size:12px">${esc(priv.philosophy||'')}</div>`;
+      $('#secCard').innerHTML = `
+        <h3>Policy runtime</h3>
+        <div class="list">
+          <div class="row-item">Mode <b style="float:right">${esc(sec.mode)}</b></div>
+          <div class="row-item">Host <b style="float:right" class="mono">${esc(sec.host)}</b></div>
+          <div class="row-item">LAN bind <b style="float:right">${sec.allow_lan_bind ? 'yes' : 'no'}</b></div>
+          <div class="row-item">Max file <b style="float:right">${esc(sec.max_file_bytes)} B</b></div>
+          <div class="row-item">Max tool steps <b style="float:right">${esc(sec.max_tool_steps)}</b></div>
+        </div>
+        <h3 style="margin-top:16px">Allowlist</h3>
+        <div class="list">${(sec.allowlist||[]).length ? sec.allowlist.map(p =>
+          `<div class="row-item mono">${esc(p)}</div>`).join('') : '<div class="empty">vuota</div>'}</div>
+        <h3 style="margin-top:16px">Blocklist</h3>
+        <div class="list">${(sec.blocklist||[]).length ? sec.blocklist.map(p =>
+          `<div class="row-item mono">${esc(p)}</div>`).join('') : '<div class="empty">nessuna</div>'}</div>`;
+      $('#toolsCard').innerHTML = `
+        <h3>Tool disponibili (livello effettivo)</h3>
+        <div class="list">${(toolsList||[]).map(t => `
+          <div class="row-item">
+            <div class="meta"><span class="tag violet">${esc(t.name)}</span><span class="tag">${esc(t.risk||'low')}</span></div>
+            <div class="muted">${esc(t.description||'')}</div>
+          </div>`).join('') || '<div class="empty">—</div>'}
+        <h3 style="margin-top:12px">Tool da privilegi</h3>
+        <div class="muted mono" style="font-size:12px">${esc((priv.tools_available||[]).join(', '))}</div>
+        </div>`;
+    } catch (e) { toast(e.message); }
+  }
+
+  /* CHAT */
+  function addMsg(role, text) {
+    const d = document.createElement('div');
+    d.className = 'msg ' + role;
+    d.innerHTML = `<div class="who">${role === 'user' ? 'Tu' : 'TAUROS'}</div>${esc(text)}`;
+    $('#messages').appendChild(d);
+    $('#messages').scrollTop = $('#messages').scrollHeight;
+  }
+
+  function renderTrace(t) {
+    if (!t) return;
+    state.lastTrace = t;
+    $('#trIntent').textContent = t.intent || 'conversation';
+    const plan = t.plan || [];
+    $('#trPlan').innerHTML = plan.length ? plan.map(p => `
+      <div class="row-item"><b>${esc(p.tool)}</b><pre class="dump">${esc(JSON.stringify(p.arguments||{},null,2))}</pre></div>
+    `).join('') : '<div class="empty">Nessun tool nel piano</div>';
+    const mem = t.memories || [];
+    $('#trMem').innerHTML = mem.length ? mem.map(m => `
+      <div class="row-item">
+        <div class="meta"><span class="tag violet">${esc(m.kind)}</span><span class="tag">${esc(m.importance)}/10</span>
+        ${m.source?`<span class="tag info">${esc(m.source)}</span>`:''}</div>
+        ${esc(m.content)}
+      </div>`).join('') : '<div class="empty">Nessuna memoria active usata</div>';
+    const c = t.memory_candidates || [];
+    $('#trCand').innerHTML = c.length ? c.map(m => `
+      <div class="row-item">
+        <div class="meta"><span class="tag warn">candidate</span><span class="tag violet">${esc(m.kind)}</span></div>
+        ${esc(m.content)}
+        <div class="mem-actions"><button class="btn sm primary" data-act="confirm" data-id="${m.id}">Conferma</button>
+        <button class="btn sm danger" data-act="forget" data-id="${m.id}">Scarta</button></div>
+      </div>`).join('') : '<div class="empty">Nessuna bozza</div>';
+    const tools = t.tools || [];
+    $('#trTools').innerHTML = tools.length ? tools.map(x => `
+      <div class="row-item">
+        <div class="meta">
+          <span class="tag violet">${esc(x.tool)}</span>
+          <span class="tag ${x.success||x.ok?'good':'bad'}">${(x.success||x.ok)?'ok':'blocked'}</span>
+          <span class="tag">${esc(x.policy||'')}</span>
+          ${x.duration_ms!=null?`<span class="faint mono">${x.duration_ms}ms</span>`:''}
+        </div>
+        <pre class="dump">${esc(JSON.stringify(x.data??x.result??x.error??x,null,2))}</pre>
+      </div>`).join('') : '<div class="empty">Nessun tool eseguito</div>';
+  }
+
+  async function sendChat() {
+    const text = $('#message').value.trim();
+    if (!text) return;
+    $('#message').value = '';
+    addMsg('user', text);
+    $('#chatStatus').textContent = 'planning…';
+    $('#btnSend').disabled = true;
+    const payload = {
+      message: text,
+      session_id: store.get().session || 'web',
+      use_tools: $('#optTools').checked,
+      auto_memory: $('#optAutoMem').checked,
+    };
+    try {
+      if ($('#optStream') && $('#optStream').checked) {
+        const res = await fetch(apiBase() + '/chat/stream', {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await res.text() || res.statusText);
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        let answer = '';
+        let trace = null;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split('\n\n');
+          buf = parts.pop() || '';
+          for (const block of parts) {
+            const lines = block.split('\n');
+            let ev = 'message', dataLine = '';
+            for (const ln of lines) {
+              if (ln.startsWith('event:')) ev = ln.slice(6).trim();
+              if (ln.startsWith('data:')) dataLine += ln.slice(5).trim();
+            }
+            if (!dataLine) continue;
+            let data; try { data = JSON.parse(dataLine); } catch { continue; }
+            if (ev === 'state') $('#chatStatus').textContent = data.stage || 'streaming';
+            if (ev === 'trace') { trace = data; renderTrace(data); }
+            if (ev === 'answer') answer = data.answer || '';
+          }
+        }
+        addMsg('assistant', answer || '(nessuna risposta)');
+        if (trace) renderTrace(trace);
+        $('#chatStatus').textContent = 'stream · ok';
+      } else {
+        const data = await api('/chat', { method: 'POST', body: JSON.stringify(payload) });
+        addMsg('assistant', data.answer);
+        renderTrace(data.trace);
+        $('#chatStatus').textContent = (data.provider || '') + ' · ' + (data.model || '');
+        $('#provLabel').textContent = (data.provider || '—') + ' · ' + (data.model || '—');
+      }
+      loadOverview().catch(()=>{});
+    } catch (e) {
+      addMsg('assistant', 'Errore: ' + e.message);
+      $('#chatStatus').textContent = 'error';
+    } finally {
+      $('#btnSend').disabled = false;
+    }
+  }
+
+  /* MEMORY ACTIONS (event delegation) */
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === 'open-write') {
+      openWrite(btn.dataset.id);
+      return;
+    }
+    const id = Number(btn.dataset.id);
+    try {
+      if (act === 'confirm') {
+        await api('/memories/confirm', { method: 'POST', body: JSON.stringify({ ids: [id] }) });
+        toast('Memoria #' + id + ' confermata');
+      } else if (act === 'forget') {
+        await api('/memories/' + id, { method: 'DELETE' });
+        toast('Memoria #' + id + ' dimenticata');
+      } else if (act === 'resolve-loop') {
+        await api('/open-loops/' + id + '/resolve', { method: 'POST', body: '{}' });
+        toast('Open loop #' + id + ' chiuso');
+      } else if (act === 'dec-status') {
+        const status = btn.dataset.status;
+        await api('/decisions/' + id, {
+          method: 'PATCH',
+          body: JSON.stringify({ status }),
+        });
+        toast('Decisione #' + id + ' → ' + status);
+        loadDecisions().catch(()=>{});
+      }
+      loadMemories().catch(()=>{});
+      loadLoops().catch(()=>{});
+      loadBrief().catch(()=>{});
+      loadOverview().catch(()=>{});
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+
+  /* WIRE UI */
+  function loadConnForm() {
+    const c = store.get();
+    $('#apiUrl').value = c.api;
+    $('#apiToken').value = c.token;
+    $('#sessionId').value = c.session;
+  }
+
+  async function loadBrain() {
+    const sel = $('#brainPick');
+    if (!sel) return;
+    try {
+      const data = await api('/brain');
+      const cur = (data.provider || '') + '|' + (data.model || '');
+      const rows = (data.catalog || []).map(c => {
+        const v = c.provider + '|' + c.id;
+        return `<option value="${esc(v)}"${v===cur?' selected':''}>${esc(c.label)}</option>`;
+      });
+      if (cur && !(data.catalog || []).some(c => c.provider === data.provider && c.id === data.model)) {
+        rows.unshift(`<option value="${esc(cur)}" selected>${esc(data.provider)} · ${esc(data.model)}</option>`);
+      }
+      sel.innerHTML = rows.join('');
+      $('#brainNow').textContent = (data.provider || '—') + ' · ' + (data.model || '—');
+      $('#provLabel').textContent = (data.provider || '—') + (data.model ? ' · ' + data.model : '');
+    } catch (e) {
+      $('#brainNow').textContent = e.message || String(e);
+    }
+  }
+
+  $('#btnSaveBrain') && ($('#btnSaveBrain').onclick = async () => {
+    const raw = ($('#brainPick').value || '');
+    const i = raw.indexOf('|');
+    if (i < 0) return toast('Scegli un modello');
+    try {
+      await api('/brain', {
+        method: 'PUT',
+        body: JSON.stringify({ provider: raw.slice(0, i), model: raw.slice(i + 1) }),
+      });
+      toast('Motore aggiornato');
+      loadBrain();
+    } catch (e) { toast(e.message); }
+  });
+
+  $('#btnSaveConn').onclick = () => {
+    store.set({
+      api: $('#apiUrl').value.trim(),
+      token: $('#apiToken').value.trim(),
+      session: $('#sessionId').value.trim() || 'web',
+    });
+    connect();
+  };
+  $('#btnClearConn').onclick = () => {
+    store.clear();
+    loadConnForm();
+    setConnUI(false, 'Offline');
+    toast('Storage pulito');
+  };
+  $('#btnConnect').onclick = () => connect();
+  $('#btnRefresh').onclick = () => { loadOverview(); toast('Aggiornato'); };
+  $('#btnSend').onclick = sendChat;
+  $('#message').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
+  $('#btnLoadMem').onclick = () => loadMemories();
+  $('#btnLoadCand').onclick = () => { $('#memStatus').value = 'candidate'; loadMemories('candidate'); };
+  $('#btnSearchMem').onclick = () => loadMemories();
+  $('#btnLoadLoops').onclick = loadLoops;
+  $('#btnLoadDec').onclick = loadDecisions;
+  $('#btnLoadBrief').onclick = loadBrief;
+  $('#btnLoadWrites').onclick = loadWrites;
+  $('#wKind').onchange = () => {
+    const k = $('#wKind').value;
+    $('#wContentBox').style.display = k === 'patch' ? 'none' : 'block';
+    $('#wPatchBox').style.display = k === 'patch' ? 'block' : 'none';
+  };
+  $('#btnProposeWrite').onclick = async () => {
+    const kind = $('#wKind').value;
+    const body = {
+      path: $('#wPath').value.trim(),
+      kind,
+      purpose: $('#wPurpose').value.trim(),
+    };
+    if (!body.path) return toast('Path obbligatorio');
+    if (kind === 'patch') {
+      body.old_text = $('#wOld').value;
+      body.new_text = $('#wNew').value;
+    } else {
+      body.content = $('#wContent').value;
+    }
+    try {
+      const p = await api('/writes/propose', { method: 'POST', body: JSON.stringify(body) });
+      toast('Bozza ' + p.id);
+      loadWrites();
+      openWrite(p.id);
+    } catch (e) { toast(e.message); }
+  };
+  $('#btnApproveWrite').onclick = async () => {
+    if (!selectedWriteId) return;
+    try {
+      const r = await api('/writes/proposals/' + encodeURIComponent(selectedWriteId) + '/approve', {
+        method: 'POST',
+        body: JSON.stringify({
+          confirm: true,
+          strong_confirmation: $('#wdStrong').value,
+        }),
+      });
+      toast('Applicato: ' + r.status + (r.backup_path ? ' · snap ok' : ''));
+      loadWrites();
+      openWrite(selectedWriteId);
+      loadSecurity();
+    } catch (e) { toast(e.message); }
+  };
+  $('#btnRejectWrite').onclick = async () => {
+    if (!selectedWriteId) return;
+    try {
+      await api('/writes/proposals/' + encodeURIComponent(selectedWriteId) + '/reject', {
+        method: 'POST', body: '{}',
+      });
+      toast('Rifiutata');
+      loadWrites();
+      $('#writeDetail').style.display = 'none';
+    } catch (e) { toast(e.message); }
+  };
+  $('#btnElevate').onclick = async () => {
+    try {
+      const r = await api('/privileges/elevate', {
+        method: 'POST',
+        body: JSON.stringify({
+          level: $('#elevLevel').value,
+          minutes: Number($('#elevMin').value) || 15,
+          strong_confirmation: $('#elevPhrase').value,
+          reason: $('#elevReason').value,
+          scope_path: $('#elevScope').value.trim() || null,
+          single_operation: $('#elevSingle').checked,
+        }),
+      });
+      toast(r.message || 'Elevato');
+      loadSecurity();
+    } catch (e) { toast(e.message); }
+  };
+  $('#btnRevokeElev').onclick = async () => {
+    try {
+      await api('/privileges/revoke', { method: 'POST', body: '{}' });
+      toast('Elevazione revocata');
+      loadSecurity();
+    } catch (e) { toast(e.message); }
+  };
+  $('#btnConsolidate').onclick = async () => {
+    try {
+      const r = await api('/memories/consolidate', { method: 'POST', body: '{}' });
+      toast('Consolidate: promosse ' + (r.promoted || 0));
+      loadBrief(); loadMemories(); loadOverview();
+    } catch (e) { toast(e.message); }
+  };
+  // Web Speech STT (Chrome/Edge)
+  let recognition = null;
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR();
+    recognition.lang = 'it-IT';
+    recognition.interimResults = true;
+    recognition.onresult = (ev) => {
+      let t = '';
+      for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
+      $('#message').value = t;
+    };
+    recognition.onerror = () => toast('Microfono / STT non disponibile');
+  }
+  $('#btnMic').onclick = () => {
+    if (!recognition) return toast('STT non supportato in questo browser');
+    try { recognition.start(); toast('Ascolto… parla in italiano'); } catch (e) { toast(e.message); }
+  };
+  $('#btnLoadAudit').onclick = loadAudit;
+  const btnVerify = $('#btnVerifyAudit');
+  if (btnVerify) btnVerify.onclick = verifyAuditChain;
+
+  async function verifyAuditChain() {
+    const el = $('#auditChainStatus');
+    try {
+      const v = await api('/audit/verify');
+      if (v.ok) {
+        if (el) el.textContent = 'catena ok · ' + v.checked + ' eventi';
+        toast('Audit integro (' + v.checked + ' eventi)');
+      } else {
+        if (el) el.textContent = 'ROTTURA id=' + (v.first_bad_id || '?');
+        toast('Catena audit rotta');
+      }
+    } catch (e) { toast(e.message); }
+  }
+  $('#btnLoadSec').onclick = loadSecurity;
+  $('#btnAddMem').onclick = async () => {
+    const content = $('#newMemContent').value.trim();
+    if (!content) return;
+    try {
+      await api('/memories', {
+        method: 'POST',
+        body: JSON.stringify({
+          content,
+          kind: $('#newMemKind').value,
+          importance: 7,
+          status: 'active',
+          source: 'user',
+          confidence: 1,
+        }),
+      });
+      $('#newMemContent').value = '';
+      toast('Memoria salvata');
+      loadMemories();
+      loadOverview();
+    } catch (e) { toast(e.message); }
+  };
+  $('#btnAddDec').onclick = async () => {
+    const title = $('#decTitle').value.trim();
+    const rationale = $('#decWhy').value.trim();
+    if (!title || !rationale) return toast('Titolo e motivazione obbligatori');
+    try {
+      await api('/decisions', {
+        method: 'POST',
+        body: JSON.stringify({
+          title,
+          rationale,
+          outcome: $('#decOut').value.trim() || null,
+          status: 'open',
+        }),
+      });
+      $('#decTitle').value = '';
+      $('#decWhy').value = '';
+      $('#decOut').value = '';
+      toast('Decisione registrata');
+      loadDecisions();
+      loadOverview();
+    } catch (e) { toast(e.message); }
+  };
+
+  /* PWA install */
+  let deferredPrompt = null;
+
+  function canInstall() {
+    return !!deferredPrompt;
+  }
+
+  function showInstallUI(show) {
+    $('#btnInstall').classList.toggle('hidden', !show);
+    if (show && !localStorage.getItem('tauros.installDismissed')) {
+      $('#installBanner').classList.add('show');
+    }
+  }
+
+  async function promptInstall() {
+    if (!deferredPrompt) {
+      // iOS / already installed guidance
+      const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+      if (isStandalone) {
+        toast('TAUROS è già installato come app');
+        return;
+      }
+      if (isIos) {
+        toast('Su iPhone: Condividi → Aggiungi a Home');
+        return;
+      }
+      toast('Installazione non disponibile in questo browser (serve HTTPS o localhost)');
+      return;
+    }
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    showInstallUI(false);
+    $('#installBanner').classList.remove('show');
+    toast(choice.outcome === 'accepted' ? 'Installazione avviata' : 'Installazione annullata');
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    showInstallUI(true);
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredPrompt = null;
+    showInstallUI(false);
+    $('#installBanner').classList.remove('show');
+    toast('TAUROS installato sul dispositivo');
+    $('#pwaStatus').textContent = 'PWA: installata';
+  });
+
+  $('#btnInstall').onclick = promptInstall;
+  $('#btnInstallBanner').onclick = promptInstall;
+  $('#btnInstallSettings').onclick = promptInstall;
+  $('#btnDismissInstall').onclick = () => {
+    localStorage.setItem('tauros.installDismissed', '1');
+    $('#installBanner').classList.remove('show');
+  };
+
+  function registerSW() {
+    if (!('serviceWorker' in navigator)) {
+      $('#pwaStatus').textContent = 'PWA: service worker non supportato';
+      return;
+    }
+    // SW only on secure contexts (https or localhost)
+    if (!window.isSecureContext) {
+      $('#pwaStatus').textContent = 'PWA: serve HTTPS (o localhost)';
+      return;
+    }
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .then((reg) => {
+        $('#pwaStatus').textContent = 'PWA: service worker attivo · ' + (reg.scope || '');
+        reg.update().catch(() => {});
+      })
+      .catch((err) => {
+        $('#pwaStatus').textContent = 'PWA: SW non registrato — ' + err.message;
+      });
+  }
+
+  // Deep link ?view=
+  const params = new URLSearchParams(location.search);
+  const initialView = params.get('view');
+  if (initialView && $('#view-' + initialView)) {
+    showView(initialView);
+  }
+
+  // boot
+  loadConnForm();
+  // Same-origin by default when served from the TAUROS host (any public domain).
+  if (location.protocol.startsWith('http')) {
+    const c = store.get();
+    if (!c.api || c.api.includes('127.0.0.1') || c.api.includes('localhost')) {
+      // Prefer same origin when not explicitly set to a remote production API
+      if (location.hostname !== '127.0.0.1' && location.hostname !== 'localhost') {
+        store.set({ api: location.origin });
+        $('#apiUrl').value = location.origin;
+      } else if (!c.api) {
+        store.set({ api: location.origin });
+        $('#apiUrl').value = location.origin;
+      }
+    }
+  }
+  registerSW();
+  connect();
+  </script>
+</body>
+</html>

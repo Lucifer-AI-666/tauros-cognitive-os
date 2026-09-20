@@ -1,0 +1,122 @@
+============================================================
+PATTERN: \.execute\(
+============================================================
+
+tauros\database.py:55:            cur = con.execute(
+tauros\database.py:83:                con.execute(
+tauros\database.py:97:            row = con.execute(
+tauros\database.py:131:                    rows = con.execute(
+tauros\database.py:144:                    rows = con.execute(
+tauros\database.py:154:                rows = con.execute(
+tauros\database.py:162:                con.execute(
+tauros\database.py:193:            rows = con.execute(
+tauros\database.py:240:                con.execute(
+tauros\database.py:245:                con.execute(f"UPDATE memories SET {','.join(fields)} WHERE id=?", params)
+tauros\database.py:251:                row = con.execute(
+tauros\database.py:255:                row = con.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+tauros\database.py:261:                cur = con.execute(
+tauros\database.py:266:                cur = con.execute(
+tauros\database.py:274:            con.execute(
+tauros\database.py:282:                rows = con.execute(
+tauros\database.py:287:                rows = con.execute(
+tauros\database.py:304:            cur = con.execute(
+tauros\database.py:314:                rows = con.execute(
+tauros\database.py:319:                rows = con.execute(
+tauros\database.py:324:                rows = con.execute(
+tauros\database.py:329:                rows = con.execute(
+tauros\database.py:338:                row = con.execute(
+tauros\database.py:343:                row = con.execute(
+tauros\database.py:360:                cur = con.execute(
+tauros\database.py:365:                cur = con.execute(
+tauros\database.py:375:            con.execute(
+tauros\database.py:386:            row = con.execute(
+tauros\database.py:397:            con.execute(
+tauros\database.py:404:            rows = con.execute("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+tauros\database.py:417:                    rows = con.execute(f"SELECT * FROM {table}").fetchall()
+tauros\database.py:435:            cur = con.execute(
+tauros\database.py:455:            row = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+tauros\database.py:460:            row = con.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+tauros\database.py:469:            con.execute(
+tauros\database.py:477:            row = con.execute("SELECT * FROM auth_sessions WHERE token=?", (token,)).fetchone()
+tauros\database.py:482:            con.execute("DELETE FROM auth_sessions WHERE token=?", (token,))
+tauros\database.py:486:            con.execute(
+tauros\database.py:493:            con.execute("UPDATE memories SET user_id=? WHERE user_id IS NULL", (user_id,))
+tauros\database.py:494:            con.execute("UPDATE messages SET user_id=? WHERE user_id IS NULL", (user_id,))
+tauros\database.py:495:            con.execute("UPDATE decisions SET user_id=? WHERE user_id IS NULL", (user_id,))
+tauros\database.py:500:            row = con.execute("PRAGMA integrity_check").fetchone()
+tauros\gmail_auth.py:214:                    con.execute(
+tauros\migrations.py:147:        return {r[1] for r in con.execute(f"PRAGMA table_info({table})").fetchall()}
+tauros\migrations.py:172:            con.execute(f"ALTER TABLE memories ADD COLUMN {name} {ddl}")
+tauros\migrations.py:182:            con.execute(f"ALTER TABLE decisions ADD COLUMN {name} {ddl}")
+tauros\migrations.py:184:        con.execute("UPDATE decisions SET updated_at=COALESCE(updated_at, created_at)")
+tauros\migrations.py:188:        con.execute("ALTER TABLE messages ADD COLUMN user_id INTEGER")
+tauros\migrations.py:192:    row = con.execute("PRAGMA integrity_check").fetchone()
+tauros\migrations.py:213:    con.execute(
+tauros\migrations.py:225:    rows = con.execute("SELECT name FROM schema_migrations").fetchall()
+tauros\migrations.py:232:    tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+tauros\migrations.py:234:        con.execute(
+tauros\migrations.py:239:        con.execute(
+tauros\migrations.py:255:        con.execute("PRAGMA journal_mode=WAL")
+tauros\migrations.py:256:        con.execute("PRAGMA foreign_keys=ON")
+tauros\migrations.py:270:                        for r in con.execute(
+tauros\migrations.py:280:                        con.execute("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')")
+tauros\migrations.py:284:                    rows = con.execute(
+tauros\migrations.py:292:                        con.execute(
+tauros\migrations.py:298:                    con.execute("CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id)")
+tauros\migrations.py:299:                    con.execute("CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id)")
+tauros\migrations.py:300:                    con.execute("CREATE INDEX IF NOT EXISTS idx_decisions_user ON decisions(user_id)")
+tauros\migrations.py:303:                con.execute(
+tauros\migrations.py:341:        rows = con.execute("SELECT name FROM schema_migrations ORDER BY id").fetchall()
+tauros\plan_executor.py:176:            tool_out = self.tools.execute(step.tool, exec_args)
+
+============================================================
+PATTERN: \.run_plan\(
+============================================================
+
+============================================================
+PATTERN: \.plan_executor\.run\(
+============================================================
+tauros\orchestrator.py:165:            plan_run = self.plan_executor.run(
+tauros\orchestrator.py:173:            plan_run = self.plan_executor.run(
+tauros\orchestrator.py:340:        return self.plan_executor.run(plan)
+
+============================================================
+PATTERN: \.approve\(
+============================================================
+tauros\api.py:455:        return writes.approve(
+
+============================================================
+PATTERN: \.restore_backup\(
+============================================================
+tauros\api.py:486:        return writes.restore_backup(
+
+============================================================
+PATTERN: \.propose\(
+============================================================
+tauros\api.py:433:        return writes.propose(
+tauros\tools.py:463:        return self.writes.propose(
+tauros\tools.py:482:        return self.writes.propose(
+
+============================================================
+PATTERN: \.snapshot\(
+============================================================
+tauros\api.py:792:    return brain.snapshot()
+tauros\brain.py:116:        return self.snapshot()
+tauros\tools.py:496:        return self.writes.snapshot(
+
+============================================================
+PATTERN: ToolRegistry\(
+============================================================
+tauros\api.py:78:tools = ToolRegistry(policy, settings, path_guard, memory=memory, writes=writes)
+
+============================================================
+PATTERN: WriteService\(
+============================================================
+tauros\api.py:72:writes = WriteService(
+
+============================================================
+PATTERN: PlanExecutor\(
+============================================================
+tauros\orchestrator.py:78:        self.plan_executor = PlanExecutor(
+
+

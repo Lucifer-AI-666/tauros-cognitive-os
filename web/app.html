@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c1016" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="TAUROS" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="/icons/icon-32.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+  <title>TAUROS</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07090c; --panel: #10151d; --line: #243041; --text: #eef3fa;
+      --muted: #8b9bb0; --accent: #d4a24c; --accent2: #f0c674; --good: #3ecf8e; --bad: #f07178;
+      --font: "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font: 15px/1.45 var(--font); color: var(--text);
+      background: radial-gradient(900px 500px at 20% -10%, rgba(212,162,76,.1), transparent 50%), var(--bg); }
+    button, input, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; border: 0; border-radius: 12px; padding: 11px 16px; font-weight: 700; }
+    .primary { background: linear-gradient(180deg, #e0b35a, #b8872f); color: #1a1206; }
+    .ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+    .danger { background: transparent; border: 1px solid rgba(240,113,120,.4); color: #ffb4b8; }
+    input, textarea {
+      width: 100%; background: #0a0e14; border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 14px; outline: none;
+    }
+    input:focus, textarea:focus { border-color: rgba(212,162,76,.55); }
+    .hidden { display: none !important; }
+    .screen { min-height: 100%; display: grid; place-items: center; padding: 24px; }
+    .card {
+      width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line);
+      border-radius: 20px; padding: 28px 24px; box-shadow: 0 20px 50px rgba(0,0,0,.35);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .mark {
+      width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+      font-weight: 800; color: #1a1206;
+      background: linear-gradient(145deg, #f0c674, #a86b1c);
+    }
+    h1 { margin: 0; font-size: 1.35rem; letter-spacing: .02em; }
+    .sub { color: var(--muted); margin: 0 0 22px; font-size: 14px; }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .row button { flex: 1; min-width: 120px; }
+    .err { color: var(--bad); font-size: 13px; min-height: 1.2em; margin-top: 10px; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 16px; text-align: center; }
+    .hint a { color: var(--accent2); }
+
+    /* CHAT */
+    #chatScreen { display: none; height: 100%; grid-template-rows: 56px 1fr auto; }
+    #chatScreen.on { display: grid; }
+    .top {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 0 14px; border-bottom: 1px solid var(--line); background: rgba(12,16,22,.95);
+    }
+    .top .who { font-weight: 700; }
+    .top .meta { color: var(--muted); font-size: 12px; }
+    .messages { overflow: auto; padding: 18px 14px; display: flex; flex-direction: column; gap: 12px; }
+    .msg {
+      max-width: min(720px, 92%); padding: 12px 14px; border-radius: 16px;
+      border: 1px solid var(--line); white-space: pre-wrap; line-height: 1.55;
+    }
+    .msg.user { align-self: flex-end; background: #151c27; }
+    .msg.bot { align-self: flex-start; background: #10151a; }
+    .msg .lbl { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+    .composer {
+      border-top: 1px solid var(--line); padding: 12px; background: #0c1016;
+      display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: end;
+    }
+    .composer textarea { min-height: 52px; max-height: 140px; resize: vertical; }
+    .composer .iconbtn { padding: 11px 12px; min-width: 48px; }
+    .pill {
+      display: inline-block; font-size: 11px; border: 1px solid var(--line);
+      border-radius: 999px; padding: 2px 8px; color: var(--muted); margin-left: 6px;
+    }
+    .pill.warn { color: #f5d78a; border-color: rgba(230,184,77,.4); }
+    #brainPick {
+      max-width: 220px; background: #0a0e14; border: 1px solid var(--line);
+      border-radius: 10px; padding: 6px 8px; color: var(--text); font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <!-- LOGIN GMAIL -->
+  <div class="screen" id="authScreen">
+    <div class="card">
+      <div class="brand">
+        <div class="mark">T</div>
+        <div>
+          <h1>TAUROS</h1>
+          <div class="sub" style="margin:0">Accedi con Gmail</div>
+        </div>
+      </div>
+
+      <div id="gmailStep1">
+        <p class="sub">Scrivi la Gmail e premi <b>Entra</b>. In locale entri subito (senza email vera).</p>
+        <div class="field">
+          <label>La tua Gmail</label>
+          <input id="gmailEmail" type="email" autocomplete="username email" placeholder="nome@gmail.com" />
+        </div>
+        <div class="row">
+          <button class="primary" id="btnSendCode" type="button">Entra con Gmail</button>
+        </div>
+        <div id="googleBtnWrap" class="row" style="margin-top:16px;justify-content:center;display:none">
+          <div id="googleBtn"></div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="ghost" id="btnGuest" type="button">Continua come ospite</button>
+        </div>
+      </div>
+
+      <div id="gmailStep2" class="hidden">
+        <p class="sub">Codice per <b id="gmailEmailShow"></b></p>
+        <div id="debugCodeBox" class="hidden" style="background:#1a2410;border:1px solid #3ecf8e55;border-radius:12px;padding:12px;margin-bottom:12px;text-align:center">
+          <div style="font-size:12px;color:var(--muted)">Codice locale (auto-login in corso…)</div>
+          <div id="debugCode" style="font-size:28px;font-weight:800;letter-spacing:.2em;color:var(--good);margin:6px 0"></div>
+          <button class="primary" id="btnUseDebug" type="button" style="width:100%">Entra ora</button>
+        </div>
+        <div class="field" id="manualCodeField">
+          <label>Codice a 6 cifre</label>
+          <input id="gmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="8" />
+        </div>
+        <div class="row">
+          <button class="primary" id="btnVerifyCode" type="button">Entra</button>
+          <button class="ghost" id="btnBackEmail" type="button">Cambia email</button>
+        </div>
+      </div>
+
+      <details style="margin-top:18px;color:var(--muted);font-size:13px">
+        <summary style="cursor:pointer">Altre opzioni (password / token)</summary>
+        <div class="field" style="margin-top:12px">
+          <label>Nome utente</label>
+          <input id="username" autocomplete="username" placeholder="anouar" />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input id="password" type="password" autocomplete="current-password" />
+        </div>
+        <div class="row">
+          <button class="ghost" id="btnLogin" type="button">Accedi</button>
+          <button class="ghost" id="btnRegister" type="button">Registrati</button>
+        </div>
+        <div class="field">
+          <label>Token operatore (.env)</label>
+          <input id="opToken" type="password" autocomplete="off" />
+        </div>
+        <div class="row">
+          <button class="ghost" id="btnToken" type="button">Entra con token</button>
+        </div>
+      </details>
+
+      <div class="err" id="authErr"></div>
+      <p class="ok" id="authOk" style="color:var(--good);font-size:13px;min-height:1.2em;margin-top:8px"></p>
+      <p class="hint">
+        Apri: <b>http://127.0.0.1:8000/</b><br>
+        Console: <a href="/console">/console</a>
+      </p>
+    </div>
+  </div>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- CHAT -->
+  <div id="chatScreen">
+    <header class="top">
+      <div>
+        <div class="who">TAUROS <span class="pill" id="userPill">—</span></div>
+        <div class="meta" id="statusMeta">pronto</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="brainPick" title="Motore AI"></select>
+        <button class="ghost" id="btnInstall" type="button" style="padding:8px 10px;font-size:12px">Installa</button>
+        <button class="danger" id="btnLogout" type="button" style="padding:8px 10px;font-size:12px">Esci</button>
+      </div>
+    </header>
+    <div class="messages" id="messages"></div>
+    <div class="composer">
+      <textarea id="message" placeholder="Scrivi a TAUROS… (Invio per inviare, Shift+Invio a capo)"></textarea>
+      <button class="ghost iconbtn" id="btnMic" type="button" title="Dettatura">🎤</button>
+      <button class="ghost iconbtn" id="btnSpeak" type="button" title="Leggi ultima risposta">🔊</button>
+      <button class="primary" id="btnSend" type="button">Invia</button>
+    </div>
+  </div>
+
+  <script>
+  const API = location.origin;
+  const $ = s => document.querySelector(s);
+
+  const store = {
+    get token() { return localStorage.getItem('tauros.userToken') || ''; },
+    set token(v) { v ? localStorage.setItem('tauros.userToken', v) : localStorage.removeItem('tauros.userToken'); },
+    get user() { try { return JSON.parse(localStorage.getItem('tauros.user') || 'null'); } catch { return null; } },
+    set user(v) { v ? localStorage.setItem('tauros.user', JSON.stringify(v)) : localStorage.removeItem('tauros.user'); },
+    clear() { this.token = ''; this.user = null; },
+  };
+
+  function headers() {
+    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + store.token };
+  }
+
+  async function api(path, opts = {}) {
+    const isAuth = path.startsWith('/auth/');
+    const hdrs = isAuth
+      ? { 'Content-Type': 'application/json', ...(opts.headers || {}) }
+      : { ...headers(), ...(opts.headers || {}) };
+    let res;
+    try {
+      res = await fetch(API + path, { ...opts, headers: hdrs });
+    } catch (net) {
+      throw new Error('Server non raggiungibile. Avvia TAUROS (start.ps1) e apri http://127.0.0.1:8000/');
+    }
+    const text = await res.text();
+    let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) {
+      const d = data && data.detail ? data.detail : (text || res.statusText);
+      throw new Error(typeof d === 'string' ? d : JSON.stringify(d));
+    }
+    return data;
+  }
+
+  function showAuth(err) {
+    $('#authScreen').classList.remove('hidden');
+    $('#chatScreen').classList.remove('on');
+    $('#authErr').textContent = err || '';
+  }
+
+  function fillBrain(data) {
+    const sel = $('#brainPick');
+    if (!sel) return;
+    const cur = (data.provider || '') + '|' + (data.model || '');
+    const opts = (data.catalog || []).map(c => {
+      const v = c.provider + '|' + c.id;
+      return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + c.label + '</option>';
+    });
+    if (cur && !(data.catalog || []).some(c => c.provider === data.provider && c.id === data.model)) {
+      opts.unshift('<option value="' + cur + '" selected>' + data.provider + ' · ' + data.model + '</option>');
+    }
+    sel.innerHTML = opts.join('');
+    $('#statusMeta').textContent = (data.provider || '') + ' · ' + (data.model || '');
+  }
+
+  async function loadBrain() {
+    try { fillBrain(await api('/brain')); } catch { /* ignore */ }
+  }
+
+  function showChat() {
+    $('#authScreen').classList.add('hidden');
+    $('#chatScreen').classList.add('on');
+    const u = store.user || {};
+    let label = u.display_name || u.username || 'utente';
+    if (u.is_guest) label += ' · ospite';
+    $('#userPill').textContent = label;
+    if (u.is_guest && u.messages_remaining != null) {
+      $('#userPill').classList.add('warn');
+      $('#statusMeta').textContent = u.messages_remaining + ' messaggi restanti';
+    } else {
+      $('#userPill').classList.remove('warn');
+      loadBrain();
+    }
+    if (!$('#messages').children.length) {
+      addMsg('bot', 'TAUROS. Acceso, locale, senza sorriso da call center. Dimmi.' +
+        (u.is_guest ? ' Sei ospite: la memoria qui è temporanea.' : ''));
+    }
+  }
+
+  function addMsg(role, text) {
+    const d = document.createElement('div');
+    d.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+    d.innerHTML = '<div class="lbl">' + (role === 'user' ? 'Tu' : 'TAUROS') + '</div>' +
+      String(text).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    $('#messages').appendChild(d);
+    $('#messages').scrollTop = $('#messages').scrollHeight;
+  }
+
+  async function doAuth(kind) {
+    $('#authErr').textContent = '';
+    // evita token vecchio/corrotto in localStorage
+    if (kind !== 'token') store.clear();
+    try {
+      let data;
+      if (kind === 'guest') {
+        data = await api('/auth/guest', { method: 'POST', body: '{}' });
+      } else if (kind === 'token') {
+        const t = ($('#opToken').value || '').trim();
+        if (t.length < 20) throw new Error('Incolla il TAUROS_API_TOKEN dal file .env (è lungo)');
+        // verifica token operatore
+        const res = await fetch(API + '/auth/me', {
+          headers: { 'Authorization': 'Bearer ' + t, 'Content-Type': 'application/json' }
+        });
+        const text = await res.text();
+        let me; try { me = JSON.parse(text); } catch { me = null; }
+        if (!res.ok) throw new Error((me && me.detail) || 'Token non valido');
+        store.token = t;
+        store.user = me;
+        showChat();
+        return;
+      } else {
+        const username = $('#username').value.trim().toLowerCase();
+        const password = $('#password').value;
+        if (!username || !password) throw new Error('Inserisci utente e password');
+        data = await api(kind === 'register' ? '/auth/register' : '/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ username, password }),
+        });
+      }
+      store.token = data.token;
+      store.user = data.user;
+      showChat();
+    } catch (e) {
+      $('#authErr').textContent = e.message || String(e);
+    }
+  }
+
+  let lastBotText = '';
+
+  async function send() {
+    const text = $('#message').value.trim();
+    if (!text) return;
+    $('#message').value = '';
+    addMsg('user', text);
+    $('#btnSend').disabled = true;
+    $('#statusMeta').textContent = 'sta pensando…';
+    const payload = {
+      message: text,
+      session_id: 'app',
+      use_tools: true,
+      auto_memory: true,
+    };
+    try {
+      // Prefer SSE stream for live status; fall back to /chat
+      let answer = '';
+      let provider = '', model = '';
+      try {
+        const res = await fetch(API + '/chat/stream', {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('stream fail');
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split('\n\n');
+          buf = parts.pop() || '';
+          for (const block of parts) {
+            let ev = 'message', dataLine = '';
+            for (const ln of block.split('\n')) {
+              if (ln.startsWith('event:')) ev = ln.slice(6).trim();
+              if (ln.startsWith('data:')) dataLine += ln.slice(5).trim();
+            }
+            if (!dataLine) continue;
+            let data; try { data = JSON.parse(dataLine); } catch { continue; }
+            if (ev === 'state') $('#statusMeta').textContent = data.stage || '…';
+            if (ev === 'answer') answer = data.answer || '';
+          }
+        }
+      } catch {
+        const data = await api('/chat', { method: 'POST', body: JSON.stringify(payload) });
+        answer = data.answer;
+        provider = data.provider || '';
+        model = data.model || '';
+      }
+      lastBotText = answer || '(nessuna risposta)';
+      addMsg('bot', lastBotText);
+      try {
+        const me = await api('/auth/me');
+        store.user = me;
+        if (me.is_guest && me.messages_remaining != null) {
+          $('#statusMeta').textContent = me.messages_remaining + ' messaggi restanti';
+          $('#userPill').textContent = (me.display_name || me.username) + ' · ospite';
+        } else {
+          $('#statusMeta').textContent = provider || model ? (provider + ' · ' + model) : 'ok';
+        }
+      } catch { $('#statusMeta').textContent = 'ok'; }
+    } catch (e) {
+      addMsg('bot', 'Errore: ' + e.message);
+      $('#statusMeta').textContent = 'errore';
+    } finally {
+      $('#btnSend').disabled = false;
+    }
+  }
+
+  // Voice: STT (Web Speech) + TTS
+  let recognition = null;
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR();
+    recognition.lang = 'it-IT';
+    recognition.interimResults = true;
+    recognition.onresult = (ev) => {
+      let t = '';
+      for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
+      $('#message').value = t;
+    };
+  }
+  $('#btnMic').onclick = () => {
+    if (!recognition) {
+      alert('Dettatura non supportata in questo browser (prova Chrome/Edge).');
+      return;
+    }
+    try {
+      recognition.start();
+      $('#statusMeta').textContent = 'ascolto…';
+    } catch (e) {
+      $('#statusMeta').textContent = e.message;
+    }
+  };
+  $('#btnSpeak').onclick = () => {
+    if (!('speechSynthesis' in window)) {
+      alert('Sintesi vocale non supportata');
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(lastBotText || 'Nessuna risposta da leggere');
+    u.lang = 'it-IT';
+    window.speechSynthesis.speak(u);
+  };
+
+  let pendingEmail = '';
+
+  function showStep1() {
+    $('#gmailStep1').classList.remove('hidden');
+    $('#gmailStep2').classList.add('hidden');
+    $('#authOk').textContent = '';
+    $('#btnSendCode').disabled = false;
+  }
+  function showStep2(email, debugCode) {
+    pendingEmail = email;
+    $('#gmailEmailShow').textContent = email;
+    $('#gmailStep1').classList.add('hidden');
+    $('#gmailStep2').classList.remove('hidden');
+    $('#gmailCode').value = debugCode || '';
+    if (debugCode) {
+      $('#debugCodeBox').classList.remove('hidden');
+      $('#debugCode').textContent = debugCode;
+      // locale: nascondi input manuale, basta un click (o auto)
+      const mf = $('#manualCodeField');
+      if (mf) mf.classList.add('hidden');
+    } else {
+      $('#debugCodeBox').classList.add('hidden');
+      const mf = $('#manualCodeField');
+      if (mf) mf.classList.remove('hidden');
+      $('#gmailCode').focus();
+    }
+  }
+
+  async function verifyGmailCode(code) {
+    $('#authErr').textContent = '';
+    store.clear();
+    code = (code || '').trim();
+    if (!code) { $('#authErr').textContent = 'Inserisci il codice'; return false; }
+    $('#btnVerifyCode').disabled = true;
+    $('#btnUseDebug').disabled = true;
+    try {
+      const data = await api('/auth/gmail/verify-code', {
+        method: 'POST',
+        body: JSON.stringify({ email: pendingEmail, code }),
+      });
+      store.token = data.token;
+      store.user = data.user;
+      showChat();
+      return true;
+    } catch (e) {
+      $('#authErr').textContent = e.message || String(e);
+      return false;
+    } finally {
+      $('#btnVerifyCode').disabled = false;
+      $('#btnUseDebug').disabled = false;
+    }
+  }
+
+  $('#btnSendCode').onclick = async () => {
+    $('#authErr').textContent = '';
+    $('#authOk').textContent = '';
+    const email = ($('#gmailEmail').value || '').trim();
+    if (!email) { $('#authErr').textContent = 'Inserisci la Gmail'; return; }
+    $('#btnSendCode').disabled = true;
+    try {
+      const data = await api('/auth/gmail/request-code', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      const code = data.debug_code || '';
+      pendingEmail = data.email || email;
+      // LOCALE: un solo click → entri subito
+      if (code) {
+        $('#authOk').textContent = 'Accesso in corso…';
+        const ok = await verifyGmailCode(code);
+        if (!ok) {
+          // fallback: mostra step 2 con codice verde
+          showStep2(pendingEmail, code);
+          $('#authOk').textContent = 'Clicca «Entra ora»';
+        }
+        return;
+      }
+      // Produzione con SMTP: chiedi il codice dall'email
+      $('#authOk').textContent = data.message || 'Controlla la posta per il codice';
+      showStep2(pendingEmail, '');
+    } catch (e) {
+      $('#authErr').textContent = e.message || String(e);
+    } finally {
+      $('#btnSendCode').disabled = false;
+    }
+  };
+
+  $('#btnUseDebug').onclick = async () => {
+    const code = ($('#debugCode').textContent || '').trim();
+    $('#gmailCode').value = code;
+    await verifyGmailCode(code);
+  };
+
+  $('#btnVerifyCode').onclick = async () => {
+    await verifyGmailCode(($('#gmailCode').value || '').trim());
+  };
+
+  $('#btnBackEmail').onclick = () => showStep1();
+  $('#gmailEmail').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); $('#btnSendCode').click(); }
+  });
+  $('#gmailCode').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); $('#btnVerifyCode').click(); }
+  });
+
+  // Google Identity button (se client_id configurato)
+  (async () => {
+    try {
+      const cfg = await api('/auth/gmail/config');
+      if (cfg.google_enabled && cfg.google_client_id && window.google) {
+        $('#googleBtnWrap').style.display = 'flex';
+        window.google.accounts.id.initialize({
+          client_id: cfg.google_client_id,
+          callback: async (resp) => {
+            $('#authErr').textContent = '';
+            try {
+              store.clear();
+              const data = await api('/auth/google', {
+                method: 'POST',
+                body: JSON.stringify({ credential: resp.credential }),
+              });
+              store.token = data.token;
+              store.user = data.user;
+              showChat();
+            } catch (e) {
+              $('#authErr').textContent = e.message || String(e);
+            }
+          },
+        });
+        window.google.accounts.id.renderButton($('#googleBtn'), {
+          theme: 'outline', size: 'large', shape: 'pill', text: 'signin_with', locale: 'it',
+        });
+      } else if (cfg.google_enabled && cfg.google_client_id) {
+        // script GIS non ancora pronto
+        window.addEventListener('load', () => {
+          setTimeout(() => {
+            if (window.google && window.google.accounts) {
+              $('#btnSendCode').click; // no-op trigger re-init path if needed
+            }
+          }, 800);
+        });
+      }
+    } catch (e) { /* ignore */ }
+  })();
+
+  $('#brainPick') && ($('#brainPick').onchange = async () => {
+    const raw = $('#brainPick').value || '';
+    const i = raw.indexOf('|');
+    if (i < 0) return;
+    try {
+      fillBrain(await api('/brain', {
+        method: 'PUT',
+        body: JSON.stringify({ provider: raw.slice(0, i), model: raw.slice(i + 1) }),
+      }));
+    } catch (e) {
+      $('#statusMeta').textContent = e.message || String(e);
+      loadBrain();
+    }
+  });
+  $('#btnLogin').onclick = () => doAuth('login');
+  $('#btnRegister').onclick = () => doAuth('register');
+  $('#btnGuest').onclick = () => doAuth('guest');
+  $('#btnToken').onclick = () => doAuth('token');
+  $('#btnSend').onclick = send;
+  $('#btnLogout').onclick = async () => {
+    try { await api('/auth/logout', { method: 'POST', body: '{}' }); } catch {}
+    store.clear();
+    $('#messages').innerHTML = '';
+    showAuth();
+  };
+  $('#message').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+
+  // PWA install
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; });
+  $('#btnInstall').onclick = async () => {
+    if (deferred) { deferred.prompt(); deferred = null; return; }
+    if (/iphone|ipad/i.test(navigator.userAgent)) alert('Su iPhone: Condividi → Aggiungi a Home');
+    else alert('Installazione non disponibile (serve HTTPS o già installata)');
+  };
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  async function enterLocal() {
+    const data = await api('/auth/local', { method: 'POST', body: '{}' });
+    store.token = data.token;
+    store.user = data.user;
+    showChat();
+  }
+
+  // boot: su questo PC entra da solo, senza token
+  (async () => {
+    if (store.token) {
+      try {
+        const me = await api('/auth/me');
+        store.user = me;
+        showChat();
+        return;
+      } catch { store.clear(); }
+    }
+    try {
+      await enterLocal();
+    } catch {
+      showAuth();
+    }
+  })();
+  </script>
+</body>
+</html>

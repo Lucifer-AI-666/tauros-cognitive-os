@@ -1,0 +1,309 @@
+
+FullName                                                             Length LastWriteTime
+--------                                                             ------ -------------
+C:\Users\anouar\tauros-cognitive-os\.pytest_cache                           25/lug/2026 03:10:06
+C:\Users\anouar\tauros-cognitive-os\.venv                                   25/lug/2026 03:09:32
+C:\Users\anouar\tauros-cognitive-os\config                                  20/lug/2026 13:53:25
+C:\Users\anouar\tauros-cognitive-os\data                                    22/ago/2026 07:11:35
+C:\Users\anouar\tauros-cognitive-os\integrations                            25/lug/2026 03:09:32
+C:\Users\anouar\tauros-cognitive-os\k8s                                     12/ago/2026 22:57:10
+C:\Users\anouar\tauros-cognitive-os\licenses                                20/lug/2026 13:53:25
+C:\Users\anouar\tauros-cognitive-os\logs                                    13/ago/2026 04:58:22
+C:\Users\anouar\tauros-cognitive-os\scripts                                 13/ago/2026 04:58:21
+C:\Users\anouar\tauros-cognitive-os\tauros                                  13/ago/2026 00:32:23
+C:\Users\anouar\tauros-cognitive-os\tests                                   13/ago/2026 00:34:03
+C:\Users\anouar\tauros-cognitive-os\web                                     20/lug/2026 13:53:25
+C:\Users\anouar\tauros-cognitive-os\.dockerignore                    231    12/ago/2026 22:57:10
+C:\Users\anouar\tauros-cognitive-os\.env                             2629   13/ago/2026 04:54:50
+C:\Users\anouar\tauros-cognitive-os\.env.example                     2183   20/lug/2026 13:52:45
+C:\Users\anouar\tauros-cognitive-os\.gitignore                       356    25/lug/2026 03:18:13
+C:\Users\anouar\tauros-cognitive-os\Caddyfile                        371    18/lug/2026 06:20:59
+C:\Users\anouar\tauros-cognitive-os\CHANGELOG.md                     1528   13/ago/2026 00:27:33
+C:\Users\anouar\tauros-cognitive-os\CONSEGNA.md                      1528   20/lug/2026 13:52:45
+C:\Users\anouar\tauros-cognitive-os\CREDENZIALI.local.txt            707    25/lug/2026 12:41:52
+C:\Users\anouar\tauros-cognitive-os\docker-compose.prod.yml          1180   18/lug/2026 06:20:59
+C:\Users\anouar\tauros-cognitive-os\docker-compose.yml               159    18/lug/2026 03:29:40
+C:\Users\anouar\tauros-cognitive-os\Dockerfile                       184    18/lug/2026 03:29:40
+C:\Users\anouar\tauros-cognitive-os\install.ps1                      1075   20/lug/2026 13:52:45
+C:\Users\anouar\tauros-cognitive-os\install.sh                       748    20/lug/2026 13:52:45
+C:\Users\anouar\tauros-cognitive-os\LICENSE                          1089   20/lug/2026 13:52:45
+C:\Users\anouar\tauros-cognitive-os\NOTICE                           780    20/lug/2026 13:52:45
+C:\Users\anouar\tauros-cognitive-os\PROGETTO_COMPLETO.md             3666   25/lug/2026 03:09:32
+C:\Users\anouar\tauros-cognitive-os\pyproject.toml                   693    12/ago/2026 22:57:42
+C:\Users\anouar\tauros-cognitive-os\README.md                        7123   12/ago/2026 23:33:43
+C:\Users\anouar\tauros-cognitive-os\start.ps1                        746    20/lug/2026 13:52:45
+C:\Users\anouar\tauros-cognitive-os\start.sh                         479    20/lug/2026 13:52:45
+C:\Users\anouar\tauros-cognitive-os\TAUROS_COMPLETION_STATE.md       173    22/ago/2026 11:24:47
+C:\Users\anouar\tauros-cognitive-os\TAUROS_PROJECT_TREE.txt          0      22/ago/2026 11:31:21
+C:\Users\anouar\tauros-cognitive-os\TAUROS-Cognitive-OS-COMPLETO.zip 340547 25/lug/2026 03:33:50
+C:\Users\anouar\tauros-cognitive-os\vercel.json                      520    18/lug/2026 06:28:57
+C:\Users\anouar\tauros-cognitive-os\VISION.md                        3684   20/lug/2026 12:58:45
+C:\Users\anouar\tauros-cognitive-os\config\system_prompt.md          1985   12/ago/2026 23:53:45
+C:\Users\anouar\tauros-cognitive-os\data\backups                            21/ago/2026 13:48:40
+C:\Users\anouar\tauros-cognitive-os\data\.gitkeep                    2      20/lug/2026 13:53:25
+C:\Users\anouar\tauros-cognitive-os\data\brain.json                  98     21/ago/2026 22:27:02
+C:\Users\anouar\tauros-cognitive-os\data\rules.json                  456    13/ago/2026 00:27:20
+C:\Users\anouar\tauros-cognitive-os\data\tauros.db                   503808 22/ago/2026 07:11:35
+C:\Users\anouar\tauros-cognitive-os\data\tauros.pid                  7      21/ago/2026 13:48:40
+C:\Users\anouar\tauros-cognitive-os\data\backups\file_snaps                 25/lug/2026 03:14:52
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:14:52
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:14:52
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:14:52
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:15:54
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:16:09
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:18:20
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:22:06
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:22:40
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:23:00
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:23:06
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T01… 110592 25/lug/2026 03:24:02
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T10… 110592 25/lug/2026 03:28:50
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260725T10… 110592 25/lug/2026 03:28:50
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T21… 110592 25/lug/2026 12:41:57
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T21… 118784 12/ago/2026 23:34:24
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T21… 118784 12/ago/2026 23:34:24
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T21… 126976 12/ago/2026 23:45:41
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T21… 126976 12/ago/2026 23:46:54
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T21… 143360 12/ago/2026 23:49:30
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T21… 143360 12/ago/2026 23:52:53
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T22… 225280 13/ago/2026 00:21:26
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T22… 225280 13/ago/2026 00:30:06
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260812T22… 225280 13/ago/2026 00:34:35
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T00… 233472 13/ago/2026 01:03:16
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T00… 253952 13/ago/2026 02:50:14
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T01… 258048 13/ago/2026 02:51:52
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T02… 270336 13/ago/2026 04:47:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T02… 274432 13/ago/2026 04:52:50
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:13
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T03… 294912 13/ago/2026 05:02:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T13… 360448 13/ago/2026 12:34:05
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260813T23… 360448 13/ago/2026 15:47:10
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260814T09… 409600 14/ago/2026 08:40:08
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260814T19… 409600 14/ago/2026 08:40:08
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260814T22… 409600 14/ago/2026 08:40:08
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260815T20… 409600 14/ago/2026 08:40:08
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260816T08… 409600 16/ago/2026 07:35:08
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260819T21… 475136 18/ago/2026 13:29:30
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T01… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T02… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T03… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T03… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T03… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T03… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T03… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T03… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T04… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T04… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T04… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T04… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T04… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T04… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T04… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T05… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T05… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T05… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T05… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T05… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T05… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T05… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T06… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T06… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T06… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T06… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T06… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T06… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T06… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T06… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T07… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T08… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T09… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T10… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T10… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T10… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T10… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T10… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T10… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T10… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T10… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T11… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T11… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T11… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T11… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.20260821T11… 479232 20/ago/2026 20:10:17
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.db-shm.2026… 32768  13/ago/2026 02:50:59
+C:\Users\anouar\tauros-cognitive-os\data\backups\tauros.db-wal.2026… 16512  13/ago/2026 02:51:04
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent              25/lug/2026 03:10:22
+C:\Users\anouar\tauros-cognitive-os\integrations\README.md           420    25/lug/2026 03:09:32
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\.git…        23/lug/2026 04:03:02
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\.pyt…        25/lug/2026 03:10:22
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\exam…        23/lug/2026 04:03:02
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\scri…        23/lug/2026 04:03:02
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src          23/lug/2026 04:03:02
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\tests        25/lug/2026 03:10:05
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\.git… 88     23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\EVAL… 2722   23/lug/2026 14:14:05
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\INIT… 306    23/lug/2026 04:03:12
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\MANI… 333    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\PROM… 546    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\pypr… 570    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\READ… 1770   23/lug/2026 14:14:05
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\SPEC… 460    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\THEO… 6166   23/lug/2026 14:13:38
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\.git…        23/lug/2026 04:03:02
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\.git… 299    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\exam… 192    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\scri… 3577   23/lug/2026 04:03:01
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\…        25/lug/2026 03:10:06
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\…        25/lug/2026 03:10:06
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 223    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 1166   23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 746    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 584    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 228    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 4600   23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 1327   23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 956    23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\src\… 1768   23/lug/2026 02:24:14
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\test…        25/lug/2026 03:10:05
+C:\Users\anouar\tauros-cognitive-os\integrations\problem_agent\test… 690    23/lug/2026 02:24:24
+C:\Users\anouar\tauros-cognitive-os\k8s\deployment.yaml              2307   12/ago/2026 23:02:07
+C:\Users\anouar\tauros-cognitive-os\licenses\THIRD_PARTY.md          948    12/ago/2026 22:57:10
+C:\Users\anouar\tauros-cognitive-os\logs\.gitkeep                    2      20/lug/2026 13:53:26
+C:\Users\anouar\tauros-cognitive-os\logs\always-on.log               18701  21/ago/2026 13:48:41
+C:\Users\anouar\tauros-cognitive-os\logs\dib-always-on.log           130    13/ago/2026 05:02:26
+C:\Users\anouar\tauros-cognitive-os\logs\uvicorn.log                 212    25/lug/2026 12:41:57
+C:\Users\anouar\tauros-cognitive-os\logs\uvicorn.log.err             202    25/lug/2026 12:41:55
+C:\Users\anouar\tauros-cognitive-os\scripts\_patch_db_users.py       19883  18/lug/2026 06:43:21
+C:\Users\anouar\tauros-cognitive-os\scripts\deploy_minikube.ps1      2170   12/ago/2026 22:57:30
+C:\Users\anouar\tauros-cognitive-os\scripts\dib_watchdog.ps1         1444   13/ago/2026 04:58:21
+C:\Users\anouar\tauros-cognitive-os\scripts\expose_tunnel.py         516    18/lug/2026 06:26:32
+C:\Users\anouar\tauros-cognitive-os\scripts\install_always_on.ps1    2223   12/ago/2026 23:33:34
+C:\Users\anouar\tauros-cognitive-os\scripts\open_tauros.ps1          1020   12/ago/2026 23:38:16
+C:\Users\anouar\tauros-cognitive-os\scripts\smoke_groq.py            3421   18/lug/2026 06:12:27
+C:\Users\anouar\tauros-cognitive-os\scripts\smoke_vertex.py          1499   12/ago/2026 22:57:30
+C:\Users\anouar\tauros-cognitive-os\scripts\tauros_watchdog.ps1      3166   13/ago/2026 05:06:14
+C:\Users\anouar\tauros-cognitive-os\scripts\TAUROS.bat               105    12/ago/2026 23:38:02
+C:\Users\anouar\tauros-cognitive-os\scripts\uninstall_always_on.ps1  1038   12/ago/2026 23:33:34
+C:\Users\anouar\tauros-cognitive-os\tauros\__pycache__                      13/ago/2026 15:12:47
+C:\Users\anouar\tauros-cognitive-os\tauros\__init__.py               22     13/ago/2026 00:27:33
+C:\Users\anouar\tauros-cognitive-os\tauros\api.py                    30260  13/ago/2026 00:32:35
+C:\Users\anouar\tauros-cognitive-os\tauros\auth.py                   7837   12/ago/2026 23:37:37
+C:\Users\anouar\tauros-cognitive-os\tauros\backup.py                 1592   18/lug/2026 05:59:20
+C:\Users\anouar\tauros-cognitive-os\tauros\bootstrap.py              7706   12/ago/2026 22:56:30
+C:\Users\anouar\tauros-cognitive-os\tauros\brain.py                  4340   13/ago/2026 05:15:23
+C:\Users\anouar\tauros-cognitive-os\tauros\cli.py                    6130   20/lug/2026 12:38:44
+C:\Users\anouar\tauros-cognitive-os\tauros\database.py               21324  20/lug/2026 12:37:21
+C:\Users\anouar\tauros-cognitive-os\tauros\gmail_auth.py             8824   25/lug/2026 03:27:44
+C:\Users\anouar\tauros-cognitive-os\tauros\memory.py                 5696   20/lug/2026 12:37:21
+C:\Users\anouar\tauros-cognitive-os\tauros\migrations.py             12681  20/lug/2026 12:37:43
+C:\Users\anouar\tauros-cognitive-os\tauros\models.py                 4924   20/lug/2026 12:55:19
+C:\Users\anouar\tauros-cognitive-os\tauros\orchestrator.py           15568  13/ago/2026 05:02:26
+C:\Users\anouar\tauros-cognitive-os\tauros\plan_executor.py          8215   20/lug/2026 12:56:05
+C:\Users\anouar\tauros-cognitive-os\tauros\plan_models.py            3277   20/lug/2026 12:55:07
+C:\Users\anouar\tauros-cognitive-os\tauros\plan_validator.py         6713   20/lug/2026 12:55:07
+C:\Users\anouar\tauros-cognitive-os\tauros\planner.py                17034  12/ago/2026 23:52:13
+C:\Users\anouar\tauros-cognitive-os\tauros\policy.py                 5853   13/ago/2026 00:26:21
+C:\Users\anouar\tauros-cognitive-os\tauros\privileges.py             16945  20/lug/2026 12:55:07
+C:\Users\anouar\tauros-cognitive-os\tauros\problem_bridge.py         2494   12/ago/2026 23:52:13
+C:\Users\anouar\tauros-cognitive-os\tauros\providers.py              12971  13/ago/2026 05:16:17
+C:\Users\anouar\tauros-cognitive-os\tauros\rules.py                  7380   13/ago/2026 00:40:29
+C:\Users\anouar\tauros-cognitive-os\tauros\security_paths.py         15209  18/lug/2026 07:09:28
+C:\Users\anouar\tauros-cognitive-os\tauros\security_redaction.py     4094   18/lug/2026 07:09:28
+C:\Users\anouar\tauros-cognitive-os\tauros\security_tokens.py        1422   18/lug/2026 07:09:28
+C:\Users\anouar\tauros-cognitive-os\tauros\security.py               985    18/lug/2026 07:09:28
+C:\Users\anouar\tauros-cognitive-os\tauros\settings.py               5443   13/ago/2026 04:54:41
+C:\Users\anouar\tauros-cognitive-os\tauros\telegram_bot.py           7329   20/lug/2026 12:38:44
+C:\Users\anouar\tauros-cognitive-os\tauros\tools.py                  19276  20/lug/2026 12:55:07
+C:\Users\anouar\tauros-cognitive-os\tauros\writes.py                 18955  20/lug/2026 12:57:56
+C:\Users\anouar\tauros-cognitive-os\tests\__pycache__                       13/ago/2026 00:40:40
+C:\Users\anouar\tauros-cognitive-os\tests\test_auth.py               2853   12/ago/2026 23:52:13
+C:\Users\anouar\tauros-cognitive-os\tests\test_brain.py              1715   13/ago/2026 00:40:29
+C:\Users\anouar\tauros-cognitive-os\tests\test_core.py               3489   18/lug/2026 06:03:38
+C:\Users\anouar\tauros-cognitive-os\tests\test_path_guard_hardening… 7209   18/lug/2026 06:56:38
+C:\Users\anouar\tauros-cognitive-os\tests\test_plan_executor.py      5182   18/lug/2026 08:07:41
+C:\Users\anouar\tauros-cognitive-os\tests\test_privileges.py         3326   18/lug/2026 08:27:01
+C:\Users\anouar\tauros-cognitive-os\tests\test_rules.py              1571   13/ago/2026 00:27:10
+C:\Users\anouar\tauros-cognitive-os\tests\test_security_paths.py     4740   18/lug/2026 07:09:52
+C:\Users\anouar\tauros-cognitive-os\tests\test_security_redaction.py 1063   18/lug/2026 07:09:52
+C:\Users\anouar\tauros-cognitive-os\tests\test_security_tokens.py    501    18/lug/2026 07:09:52
+C:\Users\anouar\tauros-cognitive-os\tests\test_security.py           7788   12/ago/2026 23:46:34
+C:\Users\anouar\tauros-cognitive-os\tests\test_supervised_writes.py  7944   20/lug/2026 12:57:42
+C:\Users\anouar\tauros-cognitive-os\tests\test_v04_features.py       6586   20/lug/2026 12:41:06
+C:\Users\anouar\tauros-cognitive-os\tests\test_vertex_provider.py    5833   13/ago/2026 00:40:29
+C:\Users\anouar\tauros-cognitive-os\web\icons                               20/lug/2026 13:53:25
+C:\Users\anouar\tauros-cognitive-os\web\app.html                     25368  13/ago/2026 00:33:06
+C:\Users\anouar\tauros-cognitive-os\web\index.html                   70917  13/ago/2026 00:34:03
+C:\Users\anouar\tauros-cognitive-os\web\manifest.webmanifest         1246   18/lug/2026 06:28:57
+C:\Users\anouar\tauros-cognitive-os\web\offline.html                 1068   18/lug/2026 06:19:56
+C:\Users\anouar\tauros-cognitive-os\web\sw.js                        2441   20/lug/2026 12:57:09
+C:\Users\anouar\tauros-cognitive-os\web\icons\icon-180.png           847    18/lug/2026 06:19:35
+C:\Users\anouar\tauros-cognitive-os\web\icons\icon-192.png           892    18/lug/2026 06:19:34
+C:\Users\anouar\tauros-cognitive-os\web\icons\icon-32.png            200    18/lug/2026 06:19:35
+C:\Users\anouar\tauros-cognitive-os\web\icons\icon-512.png           3324   18/lug/2026 06:19:35
+C:\Users\anouar\tauros-cognitive-os\web\icons\README.md              263    20/lug/2026 13:52:45
+

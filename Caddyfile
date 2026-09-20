@@ -1,0 +1,14 @@
+# TAUROS behind HTTPS domain
+# Usage: set DOMAIN=tauros.example.com and run docker compose -f docker-compose.prod.yml up -d
+
+{$DOMAIN:localhost} {
+	encode gzip
+	reverse_proxy tauros:8000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

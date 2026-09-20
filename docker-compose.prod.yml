@@ -1,0 +1,45 @@
+# Public deploy with automatic HTTPS (Caddy).
+# 1. Point DNS A/AAAA of DOMAIN to this server
+# 2. Copy .env with strong token, Groq key, allow public bind
+# 3. DOMAIN=tauros.example.com docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  tauros:
+    build: .
+    env_file: .env
+    environment:
+      TAUROS_HOST: "0.0.0.0"
+      TAUROS_ALLOW_PUBLIC_BIND: "true"
+      TAUROS_ALLOW_LAN_BIND: "true"
+      TAUROS_PUBLIC_BASE_URL: "https://${DOMAIN:-localhost}"
+      TAUROS_CORS_ORIGINS: "https://${DOMAIN:-localhost}"
+    volumes:
+      - tauros_data:/app/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - tauros
+    restart: unless-stopped
+
+volumes:
+  tauros_data:
+  caddy_data:
+  caddy_config:

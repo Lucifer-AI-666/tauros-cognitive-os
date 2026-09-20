@@ -1,0 +1,745 @@
+===== AUDIT STORE =====
+            ).fetchone()
+        return dict(row) if row else None
+
+    def audit(self, event_type: str, actor: str, details: dict) -> None:
+        safe = redact_obj(details)
+        with self.connect() as con:
+            con.execute(
+                "INSERT INTO audit(event_type, actor, details_json, created_at) VALUES (?,?,?,?)",
+                (event_type, actor, json.dumps(safe, ensure_ascii=False), self.now()),
+            )
+
+    def list_audit(self, limit: int = 100) -> list[dict]:
+        with self.connect() as con:
+            rows = con.execute("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        result = []
+        for r in rows:
+            item = dict(r)
+            item["details"] = json.loads(item.pop("details_json"))
+            result.append(item)
+        return result
+
+    def export_all(self) -> dict:
+        with self.connect() as con:
+            result = {}
+            for table in ["users", "memories", "messages", "decisions", "audit", "schema_migrations"]:
+                try:
+                    rows = con.execute(f"SELECT * FROM {table}").fetchall()
+                    result[table] = [dict(r) for r in rows]
+                except sqlite3.Error:
+                    result[table] = []
+
+===== REDACTION =====
+"""Secret redaction for logs, audit payloads, and nested objects."""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any
+
+# Never capture secret *values* into groups that get re-emitted.
+_REDACT_KV = re.compile(
+    r"(?i)\b("
+    r"[a-z0-9_]*(?:api[_-]?token|api[_-]?key|access[_-]?token|refresh[_-]?token|"
+    r"auth[_-]?token|client[_-]?secret|private[_-]?key|secret[_-]?key|"
+    r"password|passwd|pwd|openai_api_key|anthropic_api_key|"
+    r"github_token|gh_token|google_api_key|aws_secret_access_key|"
+    r"aws_session_token|database_url|db_password|connection_string|"
+    r"proxy_authorization|session_cookie|jwt)"
+    r")\b\s*[:=]\s*\S+"
+)
+_REDACT_BEARER = re.compile(r"(?i)\bbearer\s+\S+")
+_REDACT_BASIC = re.compile(r"(?i)\bbasic\s+[a-z0-9+/=]{8,}")
+_REDACT_OPENAI = re.compile(r"(?i)\bsk-[a-z0-9]{10,}")
+_REDACT_ANTHROPIC = re.compile(r"(?i)\bsk-ant-[a-z0-9\-_]{10,}")
+_REDACT_GITHUB = re.compile(r"(?i)\b(ghp|gho|ghu|ghs|ghr)_[a-z0-9]{20,}")
+_REDACT_GOOGLE = re.compile(r"(?i)\bAIza[0-9A-Za-z\-_]{20,}")
+_REDACT_JWT = re.compile(r"\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b")
+_REDACT_CONN = re.compile(
+    r"(?i)\b(postgres|postgresql|mysql|mongodb|redis|amqp|mssql)://\S+"
+)
+
+SENSITIVE_DICT_KEYS = frozenset(
+    {
+        "token",
+        "password",
+        "passwd",
+        "secret",
+        "api_key",
+        "apikey",
+        "authorization",
+        "cookie",
+        "set_cookie",
+        "jwt",
+        "access_token",
+        "refresh_token",
+        "private_key",
+        "client_secret",
+        "connection_string",
+        "database_url",
+    }
+)
+
+_SENSITIVE_KEY_FRAGMENTS = (
+    "password",
+    "secret",
+    "token",
+    "api_key",
+    "authorization",
+    "cookie",
+)
+
+
+def redact_text(text: str) -> str:
+    """Redact secrets without ever re-emitting secret values."""
+    if not text:
+        return text
+    out = _REDACT_KV.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
+    out = _REDACT_BEARER.sub("Bearer [REDACTED]", out)
+    out = _REDACT_BASIC.sub("Basic [REDACTED]", out)
+    out = _REDACT_OPENAI.sub("sk-[REDACTED]", out)
+    out = _REDACT_ANTHROPIC.sub("sk-ant-[REDACTED]", out)
+    out = _REDACT_GITHUB.sub("[REDACTED_GITHUB_TOKEN]", out)
+    out = _REDACT_GOOGLE.sub("[REDACTED_GOOGLE_KEY]", out)
+    out = _REDACT_JWT.sub("[REDACTED_JWT]", out)
+    out = _REDACT_CONN.sub(lambda m: f"{m.group(1)}://[REDACTED]", out)
+    return out
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = str(key).casefold().replace("-", "_")
+    if normalized in SENSITIVE_DICT_KEYS:
+        return True
+    return any(frag in normalized for frag in _SENSITIVE_KEY_FRAGMENTS)
+
+
+def redact_obj(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_text(value)
+    if isinstance(value, dict):
+        return {
+            k: ("[REDACTED]" if _is_sensitive_key(k) else redact_obj(v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_obj(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(redact_obj(v) for v in value)
+    return value
+
+
+class RedactingFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = redact_text(record.msg)
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = redact_obj(record.args)
+            elif isinstance(record.args, tuple):
+                record.args = tuple(
+                    redact_obj(a) if isinstance(a, (str, dict, list, tuple)) else a
+                    for a in record.args
+                )
+        return True
+
+
+def install_log_redaction() -> None:
+    root = logging.getLogger()
+    if not any(isinstance(f, RedactingFilter) for f in root.filters):
+        root.addFilter(RedactingFilter())
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "tauros"):
+        logger = logging.getLogger(name)
+        if not any(isinstance(f, RedactingFilter) for f in logger.filters):
+            logger.addFilter(RedactingFilter())
+
+===== AUDIT CALL SITES =====
+
+  tauros\api.py:75:    privileges,
+> tauros\api.py:76:    audit=lambda event, actor, details: db.audit(event, actor, details),
+  tauros\api.py:77:)
+  tauros\api.py:78:tools = ToolRegistry(policy, settings, path_guard, memory=memory, writes=writes)
+  tauros\api.py:79:provider = build_provider(settings)
+  tauros\api.py:80:planner = Planner(
+  tauros\api.py:81:    provider=provider,
+  tauros\api.py:82:    max_steps=settings.max_plan_steps,
+  tauros\api.py:379:        raise HTTPException(status_code=403, detail=str(exc)) from exc
+> tauros\api.py:380:    db.audit(
+  tauros\api.py:381:        "privilege_elevated",
+  tauros\api.py:382:        user.username,
+  tauros\api.py:383:        {
+  tauros\api.py:384:            "user_id": user.id,
+  tauros\api.py:385:            "level": session.level.name,
+  tauros\api.py:386:            "expires_at": session.expires_at.isoformat(),
+  tauros\api.py:405:    ok = privileges.revoke(user.id)
+> tauros\api.py:406:    db.audit("privilege_revoked", user.username, {"user_id": user.id, "had_session": ok})
+  tauros\api.py:407:    return {"ok": True, "revoked": ok, "status": privileges.status(user.role, user.id)}
+  tauros\api.py:408:
+  tauros\api.py:409:
+  tauros\api.py:410:# ---------- Supervised writes ----------
+  tauros\api.py:411:@app.get("/writes/proposals")
+  tauros\api.py:412:def list_write_proposals(
+  tauros\api.py:645:        raise HTTPException(status_code=404, detail="Open loop non trovato")
+> tauros\api.py:646:    db.audit("open_loop_resolved", user.username, {"memory_id": memory_id})
+  tauros\api.py:647:    return result
+  tauros\api.py:648:
+  tauros\api.py:649:
+  tauros\api.py:650:@app.post("/decisions")
+  tauros\api.py:651:def add_decision(item: DecisionCreate, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:652:    decision_id = db.add_decision(
+  tauros\api.py:659:    )
+> tauros\api.py:660:    db.audit("decision_created", user.username, {"decision_id": decision_id, "title": item.title})
+  tauros\api.py:661:    return {"id": decision_id, **item.model_dump(mode="json")}
+  tauros\api.py:662:
+  tauros\api.py:663:
+  tauros\api.py:664:@app.get("/decisions")
+  tauros\api.py:665:def list_decisions(
+  tauros\api.py:666:    limit: int = 100, status: str | None = None, user: AuthUser = Depends(require_user)
+  tauros\api.py:680:        raise HTTPException(status_code=404, detail="Decisione non trovata")
+> tauros\api.py:681:    db.audit(
+  tauros\api.py:682:        "decision_updated",
+  tauros\api.py:683:        user.username,
+  tauros\api.py:684:        {"decision_id": decision_id, "fields": list(fields.keys())},
+  tauros\api.py:685:    )
+  tauros\api.py:686:    return updated
+  tauros\api.py:687:
+  tauros\api.py:701:@app.get("/audit")
+> tauros\api.py:702:def list_audit(limit: int = 100, user: AuthUser = Depends(require_operator)) -> list[dict]:
+> tauros\api.py:703:    return db.list_audit(min(max(limit, 1), 500))
+  tauros\api.py:704:
+  tauros\api.py:705:
+  tauros\api.py:706:@app.get("/export")
+  tauros\api.py:707:def export_data(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:708:    # Users export only their slice; operator gets full redacted dump
+  tauros\api.py:709:    if user.is_operator:
+  tauros\api.py:738:        raise HTTPException(status_code=400, detail=str(exc)) from exc
+> tauros\api.py:739:    db.audit("rules_replace", user.username, {"count": len(rules)})
+  tauros\api.py:740:    return {"rules": [r.to_dict() for r in rules]}
+  tauros\api.py:741:
+  tauros\api.py:742:
+  tauros\api.py:743:@app.post("/rules")
+  tauros\api.py:744:def add_rule(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:745:    try:
+  tauros\api.py:748:        raise HTTPException(status_code=400, detail=str(exc)) from exc
+> tauros\api.py:749:    db.audit("rules_add", user.username, rule.to_dict())
+  tauros\api.py:750:    return {"rule": rule.to_dict()}
+  tauros\api.py:751:
+  tauros\api.py:752:
+  tauros\api.py:753:@app.patch("/rules/{rule_id}")
+  tauros\api.py:754:def patch_rule(rule_id: str, body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:755:    if "enabled" not in body:
+  tauros\api.py:759:        raise HTTPException(status_code=404, detail="Regola non trovata")
+> tauros\api.py:760:    db.audit("rules_toggle", user.username, rule.to_dict())
+  tauros\api.py:761:    return {"rule": rule.to_dict()}
+  tauros\api.py:762:
+  tauros\api.py:763:
+  tauros\api.py:764:@app.delete("/rules/{rule_id}")
+  tauros\api.py:765:def delete_rule(rule_id: str, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:766:    if not _rule_store().delete(rule_id):
+  tauros\api.py:767:        raise HTTPException(status_code=404, detail="Regola non trovata")
+> tauros\api.py:768:    db.audit("rules_delete", user.username, {"id": rule_id})
+  tauros\api.py:769:    return {"ok": True}
+  tauros\api.py:770:
+  tauros\api.py:771:
+  tauros\api.py:772:@app.post("/rules/evaluate")
+  tauros\api.py:773:def evaluate_rule(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:774:    tool = str(body.get("tool") or "")
+  tauros\api.py:806:        raise HTTPException(status_code=400, detail=str(exc)) from exc
+> tauros\api.py:807:    db.audit(
+  tauros\api.py:808:        "brain_switch",
+  tauros\api.py:809:        user.username,
+  tauros\api.py:810:        {"provider": snap["provider"], "model": snap["model"]},
+  tauros\api.py:811:    )
+  tauros\api.py:812:    return snap
+  tauros\api.py:813:
+  tauros\api.py:842:        decisions = db.list_decisions(200, user_id=user.id)
+> tauros\api.py:843:    audit = db.list_audit(20) if user.is_operator else []
+  tauros\api.py:844:    by_kind: dict[str, int] = {}
+  tauros\api.py:845:    for m in active:
+  tauros\api.py:846:        by_kind[m.get("kind") or "unknown"] = by_kind.get(m.get("kind") or "unknown", 0) + 1
+  tauros\api.py:847:    return {
+  tauros\api.py:848:        "version": __version__,
+  tauros\api.py:849:        "provider": settings.provider,
+  tauros\database.py:397:            con.execute(
+> tauros\database.py:398:                "INSERT INTO audit(event_type, actor, details_json, created_at) VALUES (?,?,?,?)",
+  tauros\database.py:399:                (event_type, actor, json.dumps(safe, ensure_ascii=False), self.now()),
+  tauros\database.py:400:            )
+  tauros\database.py:401:
+> tauros\database.py:402:    def list_audit(self, limit: int = 100) -> list[dict]:
+  tauros\database.py:403:        with self.connect() as con:
+  tauros\database.py:404:            rows = con.execute("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+  tauros\database.py:405:        result = []
+  tauros\database.py:406:        for r in rows:
+  tauros\database.py:407:            item = dict(r)
+  tauros\database.py:408:            item["details"] = json.loads(item.pop("details_json"))
+  tauros\gmail_auth.py:219:                pass
+> tauros\gmail_auth.py:220:            self.db.audit(
+  tauros\gmail_auth.py:221:                "auth_gmail_register",
+  tauros\gmail_auth.py:222:                username,
+  tauros\gmail_auth.py:223:                {"email": email, "provider": provider},
+  tauros\gmail_auth.py:224:            )
+  tauros\gmail_auth.py:225:            user = self.db.get_user(user_id)
+  tauros\gmail_auth.py:226:        assert user
+  tauros\gmail_auth.py:230:        )
+> tauros\gmail_auth.py:231:        self.db.audit(
+  tauros\gmail_auth.py:232:            "auth_gmail_login",
+  tauros\gmail_auth.py:233:            user["username"],
+  tauros\gmail_auth.py:234:            {"email": email, "provider": provider},
+  tauros\gmail_auth.py:235:        )
+  tauros\gmail_auth.py:236:        pub = AuthService._public_user(user)
+  tauros\gmail_auth.py:237:        pub["email"] = email
+  tauros\memory.py:33:        )
+> tauros\memory.py:34:        self.db.audit(
+  tauros\memory.py:35:            "memory_created",
+  tauros\memory.py:36:            item.source,
+  tauros\memory.py:37:            {
+  tauros\memory.py:38:                "memory_id": memory_id,
+  tauros\memory.py:39:                "kind": item.kind,
+  tauros\memory.py:40:                "status": item.status,
+  tauros\memory.py:51:        ok = self.db.deactivate_memory(memory_id, user_id=user_id)
+> tauros\memory.py:52:        self.db.audit(
+  tauros\memory.py:53:            "memory_deactivated", "user", {"memory_id": memory_id, "success": ok, "user_id": user_id}
+  tauros\memory.py:54:        )
+  tauros\memory.py:55:        return ok
+  tauros\memory.py:56:
+  tauros\memory.py:57:    def correct(self, memory_id: int, patch: MemoryPatch, user_id: int | None = None) -> dict | None:
+  tauros\memory.py:58:        updated = self.db.update_memory(
+  tauros\memory.py:60:        )
+> tauros\memory.py:61:        self.db.audit(
+  tauros\memory.py:62:            "memory_corrected",
+  tauros\memory.py:63:            "user",
+  tauros\memory.py:64:            {
+  tauros\memory.py:65:                "memory_id": memory_id,
+  tauros\memory.py:66:                "fields": list(patch.model_dump(exclude_none=True)),
+  tauros\memory.py:67:                "user_id": user_id,
+  tauros\memory.py:137:                promoted.append(int(c["id"]))
+> tauros\memory.py:138:        self.db.audit(
+  tauros\memory.py:139:            "memory_consolidate",
+  tauros\memory.py:140:            "system",
+  tauros\memory.py:141:            {"promoted": promoted, "skipped": len(skipped), "user_id": user_id},
+  tauros\memory.py:142:        )
+  tauros\memory.py:143:        return {
+  tauros\memory.py:144:            "promoted_ids": promoted,
+  tauros\orchestrator.py:81:            validator=self.plan_validator,
+> tauros\orchestrator.py:82:            audit=lambda event, actor, details: self.db.audit(event, actor, details),
+  tauros\orchestrator.py:83:        )
+  tauros\orchestrator.py:84:        # Ensure planner shares allow-list and provider for LLM plans
+  tauros\orchestrator.py:85:        if isinstance(self.planner, Planner):
+  tauros\orchestrator.py:86:            self.planner.provider = self.provider
+  tauros\orchestrator.py:87:            self.planner.max_steps = settings.max_plan_steps
+  tauros\orchestrator.py:88:            self.planner.allowed_tools = allowed
+  tauros\orchestrator.py:109:                problem_prefix = hint + "\n\n"
+> tauros\orchestrator.py:110:                self.db.audit(
+  tauros\orchestrator.py:111:                    "problem_agent_hint",
+  tauros\orchestrator.py:112:                    role,
+  tauros\orchestrator.py:113:                    {"session_id": session_id, "hint": hint[:500]},
+  tauros\orchestrator.py:114:                )
+  tauros\orchestrator.py:115:        except Exception:
+  tauros\orchestrator.py:116:            problem_prefix = ""
+  tauros\orchestrator.py:318:        )
+> tauros\orchestrator.py:319:        self.db.audit(
+  tauros\orchestrator.py:320:            "chat",
+  tauros\orchestrator.py:321:            "user",
+  tauros\orchestrator.py:322:            {
+  tauros\orchestrator.py:323:                "session_id": session_id,
+  tauros\orchestrator.py:324:                "user_id": user_id,
+  tauros\orchestrator.py:325:                "trace": redact_obj(trace.model_dump()),
+  tauros\orchestrator.py:352:            active = self.db.list_memories(10, status="active")
+> tauros\orchestrator.py:353:            audit = self.db.list_audit(8)
+  tauros\orchestrator.py:354:        else:
+  tauros\orchestrator.py:355:            loops = self.db.list_memories(
+  tauros\orchestrator.py:356:                20, kind="open_loop", statuses=["active", "candidate"], user_id=user_id
+  tauros\orchestrator.py:357:            )
+  tauros\orchestrator.py:358:            candidates = self.db.list_memories(15, status="candidate", user_id=user_id)
+  tauros\orchestrator.py:359:            decisions_open = self.db.list_decisions(15, status="open", user_id=user_id)
+  tauros\plan_executor.py:49:
+> tauros\plan_executor.py:50:        self.audit(
+  tauros\plan_executor.py:51:            "plan_requested",
+  tauros\plan_executor.py:52:            "tauros",
+  tauros\plan_executor.py:53:            redact_obj({"plan": requested.model_dump(), "validation_ok": validation.ok}),
+  tauros\plan_executor.py:54:        )
+  tauros\plan_executor.py:55:
+  tauros\plan_executor.py:56:        if not validation.ok or validation.plan is None:
+  tauros\plan_executor.py:64:            )
+> tauros\plan_executor.py:65:            self.audit("plan_rejected", "policy", redact_obj(result.model_dump()))
+  tauros\plan_executor.py:66:            return result
+  tauros\plan_executor.py:67:
+  tauros\plan_executor.py:68:        approved = validation.plan
+  tauros\plan_executor.py:69:        if approved.mode in {"chat", "plan"}:
+  tauros\plan_executor.py:70:            # No execution — structure only
+  tauros\plan_executor.py:71:            out = PlanRunResult(
+  tauros\plan_executor.py:78:            )
+> tauros\plan_executor.py:79:            self.audit("plan_approved_no_execute", "tauros", redact_obj(out.model_dump()))
+  tauros\plan_executor.py:80:            return out
+  tauros\plan_executor.py:81:
+  tauros\plan_executor.py:82:        self.tools.reset_turn_limits()
+> tauros\plan_executor.py:83:        self.audit(
+  tauros\plan_executor.py:84:            "plan_approved",
+  tauros\plan_executor.py:85:            "tauros",
+  tauros\plan_executor.py:86:            redact_obj({"plan": approved.model_dump()}),
+  tauros\plan_executor.py:87:        )
+  tauros\plan_executor.py:88:
+  tauros\plan_executor.py:89:        step_results: list[StepResult] = []
+  tauros\plan_executor.py:115:                )
+> tauros\plan_executor.py:116:                self.audit("plan_stopped", "tauros", redact_obj(run.model_dump()))
+  tauros\plan_executor.py:117:                return run
+  tauros\plan_executor.py:118:            seen_fp.add(fp)
+  tauros\plan_executor.py:119:
+  tauros\plan_executor.py:120:            decision = self.policy.authorize_tool(
+  tauros\plan_executor.py:121:                step.tool,
+  tauros\plan_executor.py:122:                step.arguments,
+  tauros\plan_executor.py:140:                step_results.append(sr)
+> tauros\plan_executor.py:141:                self.audit(
+  tauros\plan_executor.py:142:                    "plan_step_denied",
+  tauros\plan_executor.py:143:                    "policy",
+  tauros\plan_executor.py:144:                    redact_obj(
+  tauros\plan_executor.py:145:                        {
+  tauros\plan_executor.py:146:                            "step": step.model_dump(),
+  tauros\plan_executor.py:147:                            "reason": decision.reason,
+  tauros\plan_executor.py:165:                )
+> tauros\plan_executor.py:166:                self.audit("plan_stopped", "tauros", redact_obj(run.model_dump()))
+  tauros\plan_executor.py:167:                return run
+  tauros\plan_executor.py:168:
+  tauros\plan_executor.py:169:            started = time.perf_counter()
+  tauros\plan_executor.py:170:            exec_args = dict(step.arguments)
+  tauros\plan_executor.py:171:            exec_args["_role"] = role
+  tauros\plan_executor.py:172:            exec_args["_user_id"] = user_id
+  tauros\plan_executor.py:192:            step_results.append(sr)
+> tauros\plan_executor.py:193:            self.audit(
+  tauros\plan_executor.py:194:                "plan_step_executed",
+  tauros\plan_executor.py:195:                "tauros",
+  tauros\plan_executor.py:196:                redact_obj(
+  tauros\plan_executor.py:197:                    {
+  tauros\plan_executor.py:198:                        "step_id": step.id,
+  tauros\plan_executor.py:199:                        "tool": step.tool,
+  tauros\plan_executor.py:217:                )
+> tauros\plan_executor.py:218:                self.audit("plan_stopped", "tauros", redact_obj(run.model_dump()))
+  tauros\plan_executor.py:219:                return run
+  tauros\plan_executor.py:220:
+  tauros\plan_executor.py:221:        run = PlanRunResult(
+  tauros\plan_executor.py:222:            requested_plan=requested,
+  tauros\plan_executor.py:223:            approved_plan=approved,
+  tauros\plan_executor.py:224:            validation=validation,
+  tauros\plan_executor.py:229:        )
+> tauros\plan_executor.py:230:        self.audit("plan_completed", "tauros", redact_obj({"steps": len(step_results)}))
+  tauros\plan_executor.py:231:        return run
+  tauros\writes.py:285:
+> tauros\writes.py:286:        self.audit(
+  tauros\writes.py:287:            "write_proposed",
+  tauros\writes.py:288:            actor,
+  tauros\writes.py:289:            redact_obj(
+  tauros\writes.py:290:                {
+  tauros\writes.py:291:                    "proposal_id": prop.id,
+  tauros\writes.py:292:                    "path": prop.path,
+  tauros\writes.py:311:        prop.decided_at = _now().isoformat()
+> tauros\writes.py:312:        self.audit(
+  tauros\writes.py:313:            "write_rejected",
+  tauros\writes.py:314:            actor,
+  tauros\writes.py:315:            {"proposal_id": proposal_id, "path": prop.path, "user_id": user_id},
+  tauros\writes.py:316:        )
+  tauros\writes.py:317:        return prop.to_public(include_full=False)
+  tauros\writes.py:318:
+  tauros\writes.py:413:                    pass
+> tauros\writes.py:414:            self.audit(
+  tauros\writes.py:415:                "write_failed",
+  tauros\writes.py:416:                actor,
+  tauros\writes.py:417:                redact_obj(
+  tauros\writes.py:418:                    {
+  tauros\writes.py:419:                        "proposal_id": prop.id,
+  tauros\writes.py:420:                        "path": prop.path,
+  tauros\writes.py:429:        self.privileges.mark_single_op_used(user_id)
+> tauros\writes.py:430:        self.audit(
+  tauros\writes.py:431:            "write_applied",
+  tauros\writes.py:432:            actor,
+  tauros\writes.py:433:            redact_obj(
+  tauros\writes.py:434:                {
+  tauros\writes.py:435:                    "proposal_id": prop.id,
+  tauros\writes.py:436:                    "path": prop.path,
+  tauros\writes.py:475:        shutil.copy2(src, target)
+> tauros\writes.py:476:        self.audit(
+  tauros\writes.py:477:            "write_restored",
+  tauros\writes.py:478:            actor,
+  tauros\writes.py:479:            {
+  tauros\writes.py:480:                "path": str(target),
+  tauros\writes.py:481:                "from_backup": str(src),
+  tauros\writes.py:482:                "pre_restore_backup": pre,
+  tauros\writes.py:503:        dest = self._snapshot_file(target, snap_id)
+> tauros\writes.py:504:        self.audit(
+  tauros\writes.py:505:            "file_snapshot",
+  tauros\writes.py:506:            actor,
+  tauros\writes.py:507:            {"path": str(target), "backup_path": dest, "user_id": user_id},
+  tauros\writes.py:508:        )
+  tauros\writes.py:509:        return {"ok": True, "path": str(target), "backup_path": dest, "snapshot_id": snap_id}
+
+===== AUDIT API =====
+
+
+@app.get("/audit")
+def list_audit(limit: int = 100, user: AuthUser = Depends(require_operator)) -> list[dict]:
+    return db.list_audit(min(max(limit, 1), 500))
+
+
+@app.get("/export")
+def export_data(user: AuthUser = Depends(require_user)) -> dict:
+    # Users export only their slice; operator gets full redacted dump
+    if user.is_operator:
+        return redact_obj(db.export_all())
+    return redact_obj(
+        {
+            "memories": db.list_memories(500, user_id=user.id),
+            "decisions": db.list_decisions(500, user_id=user.id),
+            "user": AuthService._public_user(db.get_user(user.id) or {}),
+        }
+    )
+
+
+===== AUDIT / REDACTION TESTS =====
+> tests\test_path_guard_hardening.py:1:"""PathGuard + redaction + token strength — default deny barrier."""
+  tests\test_path_guard_hardening.py:2:
+  tests\test_path_guard_hardening.py:3:from pathlib import Path
+  tests\test_path_guard_hardening.py:4:
+  tests\test_path_guard_hardening.py:5:import pytest
+  tests\test_path_guard_hardening.py:6:
+  tests\test_path_guard_hardening.py:13:    parse_path_list,
+> tests\test_path_guard_hardening.py:14:    redact_obj,
+> tests\test_path_guard_hardening.py:15:    redact_text,
+  tests\test_path_guard_hardening.py:16:)
+  tests\test_path_guard_hardening.py:17:
+  tests\test_path_guard_hardening.py:18:
+  tests\test_path_guard_hardening.py:19:def test_file_inside_allowlist_accepted(tmp_path: Path):
+  tests\test_path_guard_hardening.py:20:    ws = tmp_path / "TaurosWorkspace"
+  tests\test_path_guard_hardening.py:179:
+> tests\test_path_guard_hardening.py:180:def test_redaction_simple_and_nested():
+  tests\test_path_guard_hardening.py:181:    text = "api_key=abcdefghijklmnop OpenAI sk-abcdefghijklmnopqrstuvwxyz"
+> tests\test_path_guard_hardening.py:182:    red = redact_text(text)
+  tests\test_path_guard_hardening.py:183:    assert "abcdefghijklmnop" not in red
+  tests\test_path_guard_hardening.py:184:    assert "sk-abcdefghijklmnopqrstuvwxyz" not in red
+> tests\test_path_guard_hardening.py:185:    assert "[REDACTED]" in red
+  tests\test_path_guard_hardening.py:186:
+  tests\test_path_guard_hardening.py:187:    # JWT-like
+  tests\test_path_guard_hardening.py:188:    jwt = "header eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature_tail_here_xxx"
+  tests\test_path_guard_hardening.py:189:    # use a more realistic JWT body
+  tests\test_path_guard_hardening.py:190:    jwt = (
+  tests\test_path_guard_hardening.py:194:    )
+> tests\test_path_guard_hardening.py:195:    red_jwt = redact_text(jwt)
+  tests\test_path_guard_hardening.py:196:    assert "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" not in red_jwt
+  tests\test_path_guard_hardening.py:197:
+  tests\test_path_guard_hardening.py:198:    nested = {
+  tests\test_path_guard_hardening.py:199:        "api_token": "xyz",
+  tests\test_path_guard_hardening.py:200:        "nested": {"password": "p", "ok": "visible"},
+  tests\test_path_guard_hardening.py:202:    }
+> tests\test_path_guard_hardening.py:203:    out = redact_obj(nested)
+> tests\test_path_guard_hardening.py:204:    assert out["api_token"] == "[REDACTED]"
+> tests\test_path_guard_hardening.py:205:    assert out["nested"]["password"] == "[REDACTED]"
+  tests\test_path_guard_hardening.py:206:    assert out["nested"]["ok"] == "visible"
+> tests\test_path_guard_hardening.py:207:    assert out["list"][0]["secret"] == "[REDACTED]"
+> tests\test_path_guard_hardening.py:208:    assert "Bearer [REDACTED]" in out["list"][1] or "[REDACTED]" in out["list"][1]
+  tests\test_path_guard_hardening.py:209:
+  tests\test_path_guard_hardening.py:210:
+  tests\test_path_guard_hardening.py:211:def test_parse_path_list_json_and_newlines(tmp_path: Path):
+  tests\test_path_guard_hardening.py:212:    a = tmp_path / "a"
+  tests\test_path_guard_hardening.py:213:    b = tmp_path / "b,with,comma"
+  tests\test_plan_executor.py:34:    )
+> tests\test_plan_executor.py:35:    audit_log: list[tuple[str, dict]] = []
+  tests\test_plan_executor.py:36:
+> tests\test_plan_executor.py:37:    def audit(event: str, actor: str, details: dict) -> None:
+> tests\test_plan_executor.py:38:        audit_log.append((event, details))
+  tests\test_plan_executor.py:39:
+> tests\test_plan_executor.py:40:    executor = PlanExecutor(tools=tools, policy=policy, validator=validator, audit=audit)
+> tests\test_plan_executor.py:41:    return ws, executor, audit_log
+  tests\test_plan_executor.py:42:
+  tests\test_plan_executor.py:43:
+  tests\test_plan_executor.py:44:def test_handwritten_readonly_plan_succeeds(tmp_path: Path):
+> tests\test_plan_executor.py:45:    ws, executor, audit = _stack(tmp_path)
+  tests\test_plan_executor.py:46:    (ws / "a.md").write_text("hello", encoding="utf-8")
+  tests\test_plan_executor.py:47:    plan = StructuredPlan(
+  tests\test_plan_executor.py:48:        intent="inspect_workspace",
+  tests\test_plan_executor.py:49:        mode="execute_read_only",
+  tests\test_plan_executor.py:50:        rationale="test manuale",
+  tests\test_plan_executor.py:60:    assert all(s.success for s in run.steps)
+> tests\test_plan_executor.py:61:    assert any(e == "plan_completed" for e, _ in audit)
+> tests\test_plan_executor.py:62:    assert any(e == "plan_approved" for e, _ in audit)
+  tests\test_plan_executor.py:63:
+  tests\test_plan_executor.py:64:
+  tests\test_plan_executor.py:65:def test_handwritten_plan_stops_on_policy_deny(tmp_path: Path):
+> tests\test_plan_executor.py:66:    ws, executor, audit = _stack(tmp_path)
+  tests\test_plan_executor.py:67:    outside = tmp_path / "secret.md"
+  tests\test_plan_executor.py:68:    outside.write_text("LEAK-ME", encoding="utf-8")
+  tests\test_plan_executor.py:69:    plan = StructuredPlan(
+  tests\test_plan_executor.py:70:        intent="attack_path",
+  tests\test_plan_executor.py:71:        mode="execute_read_only",
+  tests\test_plan_executor.py:92:    # second step never runs
+> tests\test_plan_executor.py:93:    assert any(e == "plan_step_denied" for e, _ in audit)
+> tests\test_plan_executor.py:94:    assert any(e == "plan_stopped" for e, _ in audit)
+  tests\test_plan_executor.py:95:
+  tests\test_plan_executor.py:96:
+  tests\test_plan_executor.py:97:def test_invalid_json_plan_rejected(tmp_path: Path):
+> tests\test_plan_executor.py:98:    _, executor, audit = _stack(tmp_path)
+  tests\test_plan_executor.py:99:    run = executor.run("{not json")
+  tests\test_plan_executor.py:100:    assert not run.validation.ok
+  tests\test_plan_executor.py:101:    assert run.stopped
+  tests\test_plan_executor.py:102:    assert run.stop_reason == "validation_failed"
+> tests\test_plan_executor.py:103:    assert any(e == "plan_rejected" for e, _ in audit)
+  tests\test_plan_executor.py:104:
+  tests\test_plan_executor.py:105:
+  tests\test_plan_executor.py:106:def test_too_many_steps_rejected(tmp_path: Path):
+  tests\test_plan_executor.py:107:    _, executor, _ = _stack(tmp_path)
+  tests\test_plan_executor.py:108:    steps = [
+  tests\test_plan_executor.py:139:def test_plan_mode_does_not_execute_tools(tmp_path: Path):
+> tests\test_plan_executor.py:140:    _, executor, audit = _stack(tmp_path)
+  tests\test_plan_executor.py:141:    plan = StructuredPlan(
+  tests\test_plan_executor.py:142:        intent="preview",
+  tests\test_plan_executor.py:143:        mode="plan",
+  tests\test_plan_executor.py:144:        steps=[PlanStep(id="s1", tool="system_info", arguments={})],
+  tests\test_plan_executor.py:145:    )
+  tests\test_security_paths.py:91:
+> tests\test_security_paths.py:92:def test_simulated_planner_denied_outside_file_is_auditable(tmp_path: Path):
+  tests\test_security_paths.py:93:    """Planner proposes read outside allowlist → policy denies → tool does not open."""
+  tests\test_security_paths.py:94:    ws = tmp_path / "TaurosWorkspace"
+  tests\test_security_paths.py:95:    ws.mkdir()
+  tests\test_security_paths.py:96:    outside = tmp_path / "passwd_copy.txt"
+  tests\test_security_paths.py:97:    outside.write_text("should-not-be-read", encoding="utf-8")
+> tests\test_security_redaction.py:1:from tauros.security import redact_obj, redact_text
+  tests\test_security_redaction.py:2:
+  tests\test_security_redaction.py:3:
+> tests\test_security_redaction.py:4:def test_redact_kv_and_bearer():
+  tests\test_security_redaction.py:5:    text = "Authorization: Bearer abcdef123456 and TAUROS_API_TOKEN=super-secret-token-value"
+> tests\test_security_redaction.py:6:    red = redact_text(text)
+  tests\test_security_redaction.py:7:    assert "abcdef123456" not in red
+  tests\test_security_redaction.py:8:    assert "super-secret-token-value" not in red
+> tests\test_security_redaction.py:9:    assert "[REDACTED]" in red
+  tests\test_security_redaction.py:10:
+  tests\test_security_redaction.py:11:
+> tests\test_security_redaction.py:12:def test_redact_nested_dict_and_list():
+  tests\test_security_redaction.py:13:    obj = {
+  tests\test_security_redaction.py:14:        "api_token": "xyz",
+  tests\test_security_redaction.py:15:        "nested": {"password": "p", "ok": "visible"},
+  tests\test_security_redaction.py:16:        "list": [{"secret": "hide"}, "Authorization: Bearer abc.def.ghi"],
+  tests\test_security_redaction.py:17:    }
+> tests\test_security_redaction.py:18:    out = redact_obj(obj)
+> tests\test_security_redaction.py:19:    assert out["api_token"] == "[REDACTED]"
+> tests\test_security_redaction.py:20:    assert out["nested"]["password"] == "[REDACTED]"
+  tests\test_security_redaction.py:21:    assert out["nested"]["ok"] == "visible"
+> tests\test_security_redaction.py:22:    assert out["list"][0]["secret"] == "[REDACTED]"
+  tests\test_security_redaction.py:23:    assert "abc.def.ghi" not in out["list"][1]
+  tests\test_security_redaction.py:24:
+  tests\test_security_redaction.py:25:
+> tests\test_security_redaction.py:26:def test_redact_provider_keys():
+  tests\test_security_redaction.py:27:    text = "sk-abcdefghijklmnopqrst sk-ant-abcdefghijklmnopqrst ghp_abcdefghijklmnopqrstuv"
+> tests\test_security_redaction.py:28:    red = redact_text(text)
+  tests\test_security_redaction.py:29:    assert "sk-abcdefghijklmnopqrst" not in red
+  tests\test_security_redaction.py:30:    assert "ghp_abcdefghijklmnopqrstuv" not in red
+  tests\test_security.py:15:    is_weak_token,
+> tests\test_security.py:16:    redact_obj,
+> tests\test_security.py:17:    redact_text,
+  tests\test_security.py:18:)
+  tests\test_security.py:19:from tauros.settings import Settings
+  tests\test_security.py:20:from tauros.tools import ToolRegistry
+  tests\test_security.py:21:
+  tests\test_security.py:22:
+  tests\test_security.py:123:
+> tests\test_security.py:124:def test_secret_redaction():
+  tests\test_security.py:125:    text = "Authorization: Bearer abcdef123456 and TAUROS_API_TOKEN=super-secret-token-value"
+> tests\test_security.py:126:    red = redact_text(text)
+  tests\test_security.py:127:    assert "abcdef123456" not in red
+  tests\test_security.py:128:    assert "super-secret-token-value" not in red
+> tests\test_security.py:129:    assert "[REDACTED]" in red
+> tests\test_security.py:130:    obj = redact_obj({"api_token": "xyz", "nested": {"password": "p"}})
+> tests\test_security.py:131:    assert obj["api_token"] == "[REDACTED]"
+> tests\test_security.py:132:    assert obj["nested"]["password"] == "[REDACTED]"
+  tests\test_security.py:133:
+  tests\test_security.py:134:
+  tests\test_security.py:135:def test_tool_limits_same_tool(tmp_path: Path):
+  tests\test_security.py:136:    ws = tmp_path / "workspace"
+  tests\test_security.py:137:    ws.mkdir()
+  tests\test_supervised_writes.py:29:    policy = PolicyEngine(settings, privileges=priv)
+> tests\test_supervised_writes.py:30:    audit: list[tuple[str, dict]] = []
+  tests\test_supervised_writes.py:31:
+> tests\test_supervised_writes.py:32:    def _audit(event, actor, details):
+> tests\test_supervised_writes.py:33:        audit.append((event, details))
+  tests\test_supervised_writes.py:34:
+> tests\test_supervised_writes.py:35:    writes = WriteService(settings, policy.path_guard, priv, audit=_audit)
+  tests\test_supervised_writes.py:36:    tools = ToolRegistry(policy, settings, policy.path_guard, writes=writes)
+> tests\test_supervised_writes.py:37:    return ws, settings, priv, policy, writes, tools, audit
+  tests\test_supervised_writes.py:38:
+  tests\test_supervised_writes.py:39:
+  tests\test_supervised_writes.py:40:def test_propose_does_not_write_disk(tmp_path: Path):
+> tests\test_supervised_writes.py:41:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:42:    target = ws / "note.md"
+  tests\test_supervised_writes.py:43:    prop = writes.propose(
+  tests\test_supervised_writes.py:44:        user_id=1,
+  tests\test_supervised_writes.py:45:        actor="owner",
+  tests\test_supervised_writes.py:46:        path=str(target),
+  tests\test_supervised_writes.py:53:    assert not target.exists()
+> tests\test_supervised_writes.py:54:    assert any(e == "write_proposed" for e, _ in audit)
+  tests\test_supervised_writes.py:55:
+  tests\test_supervised_writes.py:56:
+  tests\test_supervised_writes.py:57:def test_approve_create_with_owner(tmp_path: Path):
+> tests\test_supervised_writes.py:58:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:59:    target = ws / "created.md"
+  tests\test_supervised_writes.py:60:    prop = writes.propose(
+  tests\test_supervised_writes.py:61:        user_id=1,
+  tests\test_supervised_writes.py:62:        actor="owner",
+  tests\test_supervised_writes.py:63:        path=str(target),
+  tests\test_supervised_writes.py:77:    assert target.read_text(encoding="utf-8") == "line1\n"
+> tests\test_supervised_writes.py:78:    assert any(e == "write_applied" for e, _ in audit)
+  tests\test_supervised_writes.py:79:
+  tests\test_supervised_writes.py:80:
+  tests\test_supervised_writes.py:81:def test_approve_replace_with_backup_and_patch(tmp_path: Path):
+> tests\test_supervised_writes.py:82:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:83:    target = ws / "edit.md"
+  tests\test_supervised_writes.py:84:    target.write_text("alpha beta gamma", encoding="utf-8")
+  tests\test_supervised_writes.py:85:    prop = writes.propose(
+  tests\test_supervised_writes.py:86:        user_id=1,
+  tests\test_supervised_writes.py:87:        actor="owner",
+  tests\test_supervised_writes.py:108:def test_operator_needs_elevation_to_approve(tmp_path: Path):
+> tests\test_supervised_writes.py:109:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:110:    target = ws / "x.md"
+  tests\test_supervised_writes.py:111:    prop = writes.propose(
+  tests\test_supervised_writes.py:112:        user_id=9,
+  tests\test_supervised_writes.py:113:        actor="op",
+  tests\test_supervised_writes.py:114:        path=str(target),
+  tests\test_supervised_writes.py:197:def test_tool_propose_write_via_registry(tmp_path: Path):
+> tests\test_supervised_writes.py:198:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:199:    out = tools.execute(
+  tests\test_supervised_writes.py:200:        "propose_write",
+  tests\test_supervised_writes.py:201:        {
+  tests\test_supervised_writes.py:202:            "path": str(ws / "via_tool.md"),
+  tests\test_supervised_writes.py:203:            "content": "from tool",
+  tests\test_supervised_writes.py:215:def test_reject_proposal(tmp_path: Path):
+> tests\test_supervised_writes.py:216:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:217:    prop = writes.propose(
+  tests\test_supervised_writes.py:218:        user_id=1,
+  tests\test_supervised_writes.py:219:        actor="owner",
+  tests\test_supervised_writes.py:220:        path=str(ws / "r.md"),
+  tests\test_supervised_writes.py:221:        content="x",
+  tests\test_supervised_writes.py:231:def test_restore_from_backup(tmp_path: Path):
+> tests\test_supervised_writes.py:232:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:233:    target = ws / "snap.md"
+  tests\test_supervised_writes.py:234:    target.write_text("v1", encoding="utf-8")
+  tests\test_supervised_writes.py:235:    snap = writes.snapshot(str(target), user_id=1, actor="owner", role="owner")
+  tests\test_supervised_writes.py:236:    target.write_text("v2", encoding="utf-8")
+  tests\test_supervised_writes.py:237:    restored = writes.restore_backup(
+  tests\test_supervised_writes.py:250:    """User A must not apply user B's pending proposal, even with owner privileges."""
+> tests\test_supervised_writes.py:251:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:252:    target = ws / "owned_by_b.md"
+  tests\test_supervised_writes.py:253:    prop = writes.propose(
+  tests\test_supervised_writes.py:254:        user_id=2,
+  tests\test_supervised_writes.py:255:        actor="bob",
+  tests\test_supervised_writes.py:256:        path=str(target),
+  tests\test_supervised_writes.py:277:    """User A must not reject user B's pending proposal."""
+> tests\test_supervised_writes.py:278:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:279:    prop = writes.propose(
+  tests\test_supervised_writes.py:280:        user_id=2,
+  tests\test_supervised_writes.py:281:        actor="bob",
+  tests\test_supervised_writes.py:282:        path=str(ws / "owned_by_b.md"),
+  tests\test_supervised_writes.py:283:        content="only bob",
+  tests\test_supervised_writes.py:302:
+> tests\test_supervised_writes.py:303:    ws, settings, priv, policy, writes, tools, audit = _stack(tmp_path)
+  tests\test_supervised_writes.py:304:    prop = writes.propose(
+  tests\test_supervised_writes.py:305:        user_id=1,
+  tests\test_supervised_writes.py:306:        actor="alice",
+  tests\test_supervised_writes.py:307:        path=str(ws / "once.md"),
+  tests\test_supervised_writes.py:308:        content="x",
+

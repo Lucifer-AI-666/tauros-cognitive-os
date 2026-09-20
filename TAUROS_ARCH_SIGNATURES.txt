@@ -1,0 +1,267 @@
+===== tauros\orchestrator.py =====
+
+tauros\orchestrator.py:1:from __future__ import annotations
+tauros\orchestrator.py:3:from pathlib import Path
+tauros\orchestrator.py:4:from typing import Any
+tauros\orchestrator.py:6:from .database import Database
+tauros\orchestrator.py:7:from .memory import MemoryManager
+tauros\orchestrator.py:8:from .models import ChatRequest, ChatResponse, Trace
+tauros\orchestrator.py:9:from .plan_executor import PlanExecutor
+tauros\orchestrator.py:10:from .plan_models import StructuredPlan
+tauros\orchestrator.py:11:from .plan_validator import PlanValidator
+tauros\orchestrator.py:12:from .planner import Planner
+tauros\orchestrator.py:13:from .policy import PolicyEngine
+tauros\orchestrator.py:14:from .providers import LLMProvider, ProviderError
+tauros\orchestrator.py:15:from .security import redact_obj
+tauros\orchestrator.py:16:from .settings import Settings
+tauros\orchestrator.py:17:from .tools import ToolRegistry
+tauros\orchestrator.py:26:def _history_for_llm(history: list[dict]) -> list[dict]:
+tauros\orchestrator.py:36:class Orchestrator:
+
+===== tauros\planner.py =====
+tauros\planner.py:3:from __future__ import annotations
+tauros\planner.py:5:import json
+tauros\planner.py:6:import re
+tauros\planner.py:7:from dataclasses import dataclass, field
+tauros\planner.py:8:from typing import Any
+tauros\planner.py:10:from .models import ToolCall
+tauros\planner.py:11:from .plan_models import PlanStep, StructuredPlan
+tauros\planner.py:12:from .plan_validator import PlanValidator
+tauros\planner.py:13:from .providers import LLMProvider, ProviderError
+tauros\planner.py:17:class Plan:
+tauros\planner.py:59:class Planner:
+
+===== tauros\plan_validator.py =====
+tauros\plan_validator.py:3:from __future__ import annotations
+tauros\plan_validator.py:5:import json
+tauros\plan_validator.py:6:from typing import Any
+tauros\plan_validator.py:8:from pydantic import ValidationError
+tauros\plan_validator.py:10:from .plan_models import (
+tauros\plan_validator.py:20:class PlanValidator:
+
+===== tauros\policy.py =====
+tauros\policy.py:3:from __future__ import annotations
+tauros\policy.py:5:from dataclasses import dataclass
+tauros\policy.py:6:from pathlib import Path
+tauros\policy.py:7:from typing import Any
+tauros\policy.py:9:from .privileges import ConfirmationLevel, PrivilegeLevel, PrivilegeService
+tauros\policy.py:10:from .rules import RuleStore
+tauros\policy.py:11:from .security import AccessLevel, PathGuard
+tauros\policy.py:12:from .settings import Settings
+tauros\policy.py:16:class PolicyDecision:
+tauros\policy.py:25:class PolicyEngine:
+
+===== tauros\privileges.py =====
+tauros\privileges.py:7:from __future__ import annotations
+tauros\privileges.py:9:import secrets
+tauros\privileges.py:10:from dataclasses import dataclass, field
+tauros\privileges.py:11:from datetime import datetime, timedelta, timezone
+tauros\privileges.py:12:from enum import Enum, IntEnum
+tauros\privileges.py:13:from pathlib import Path
+tauros\privileges.py:14:from typing import Any
+tauros\privileges.py:16:from .security import parse_path_list
+tauros\privileges.py:19:class PrivilegeLevel(IntEnum):
+tauros\privileges.py:28:class ConfirmationLevel(str, Enum):
+tauros\privileges.py:35:class ActionClass(str, Enum):
+tauros\privileges.py:160:def _now() -> datetime:
+tauros\privileges.py:165:class ElevationSession:
+tauros\privileges.py:196:class PrivilegeDecision:
+tauros\privileges.py:228:class PrivilegeService:
+
+===== tauros\plan_executor.py =====
+tauros\plan_executor.py:3:from __future__ import annotations
+tauros\plan_executor.py:5:import time
+tauros\plan_executor.py:6:from typing import Any, Callable
+tauros\plan_executor.py:8:from .plan_models import PlanRunResult, PlanStep, StepResult, StructuredPlan
+tauros\plan_executor.py:9:from .plan_validator import PlanValidator
+tauros\plan_executor.py:10:from .policy import PolicyEngine
+tauros\plan_executor.py:11:from .security import redact_obj
+tauros\plan_executor.py:12:from .tools import ToolRegistry
+tauros\plan_executor.py:15:class PlanExecutor:
+
+===== tauros\tools.py =====
+tauros\tools.py:1:from __future__ import annotations
+tauros\tools.py:3:import platform
+tauros\tools.py:4:import re
+tauros\tools.py:5:import shutil
+tauros\tools.py:6:import subprocess
+tauros\tools.py:7:import time
+tauros\tools.py:8:from pathlib import Path
+tauros\tools.py:9:from typing import Any, Callable
+tauros\tools.py:11:from .policy import PolicyEngine
+tauros\tools.py:12:from .security import PathGuard, redact_obj
+tauros\tools.py:13:from .settings import Settings
+tauros\tools.py:16:class ToolRegistry:
+
+===== tauros\writes.py =====
+tauros\writes.py:7:from __future__ import annotations
+tauros\writes.py:9:import hashlib
+tauros\writes.py:10:import secrets
+tauros\writes.py:11:import shutil
+tauros\writes.py:12:import threading
+tauros\writes.py:13:from dataclasses import dataclass, field
+tauros\writes.py:14:from datetime import datetime, timezone
+tauros\writes.py:15:from enum import Enum
+tauros\writes.py:16:from pathlib import Path
+tauros\writes.py:17:from typing import Any, Callable
+tauros\writes.py:19:from .privileges import ConfirmationLevel, PrivilegeLevel, PrivilegeService
+tauros\writes.py:20:from .security import PathGuard, redact_obj
+tauros\writes.py:21:from .settings import Settings
+tauros\writes.py:24:def _now() -> datetime:
+tauros\writes.py:28:def _sha256_text(text: str) -> str:
+tauros\writes.py:32:class ProposalKind(str, Enum):
+tauros\writes.py:38:class ProposalStatus(str, Enum):
+tauros\writes.py:48:class WriteProposal:
+tauros\writes.py:123:class WriteService:
+
+===== tauros\memory.py =====
+tauros\memory.py:1:from __future__ import annotations
+tauros\memory.py:3:import re
+tauros\memory.py:5:from .database import Database
+tauros\memory.py:6:from .models import MemoryCreate, MemoryPatch
+tauros\memory.py:7:from .security import content_hash
+tauros\memory.py:10:class MemoryManager:
+
+===== tauros\database.py =====
+tauros\database.py:1:from __future__ import annotations
+tauros\database.py:3:import json
+tauros\database.py:4:import sqlite3
+tauros\database.py:5:from contextlib import contextmanager
+tauros\database.py:6:from datetime import datetime, timezone
+tauros\database.py:7:from pathlib import Path
+tauros\database.py:8:from typing import Iterator
+tauros\database.py:10:from .migrations import run_migrations
+tauros\database.py:11:from .security import content_hash, normalize_memory_text, redact_obj
+tauros\database.py:14:class Database:
+
+===== tauros\brain.py =====
+tauros\brain.py:3:from __future__ import annotations
+tauros\brain.py:5:import json
+tauros\brain.py:6:from pathlib import Path
+tauros\brain.py:7:from typing import Any
+tauros\brain.py:9:from .providers import ProviderError, build_provider
+tauros\brain.py:10:from .settings import Settings
+tauros\brain.py:32:def brain_path(settings: Settings) -> Path:
+tauros\brain.py:36:def load_brain_override(settings: Settings) -> dict[str, str] | None:
+tauros\brain.py:56:def save_brain(settings: Settings) -> None:
+tauros\brain.py:69:def validate_brain(provider: str, model: str) -> tuple[str, str]:
+tauros\brain.py:85:def current_brain(settings: Settings) -> dict[str, Any]:
+tauros\brain.py:94:class BrainRuntime:
+
+===== tauros\providers.py =====
+tauros\providers.py:1:from __future__ import annotations
+tauros\providers.py:3:import asyncio
+tauros\providers.py:4:import os
+tauros\providers.py:5:from abc import ABC, abstractmethod
+tauros\providers.py:6:from collections.abc import Callable
+tauros\providers.py:8:import httpx
+tauros\providers.py:10:from .settings import Settings
+tauros\providers.py:15:class ProviderError(RuntimeError):
+tauros\providers.py:19:class LLMProvider(ABC):
+tauros\providers.py:25:class OllamaProvider(LLMProvider):
+tauros\providers.py:40:class OpenAICompatibleProvider(LLMProvider):
+tauros\providers.py:86:class DibProvider(LLMProvider):
+tauros\providers.py:140:def resolve_vertex_project(settings: Settings) -> str:
+tauros\providers.py:149:def resolve_vertex_location(settings: Settings) -> str:
+tauros\providers.py:153:def normalize_vertex_model(model: str) -> str:
+tauros\providers.py:161:def vertex_api_root(location: str) -> str:
+tauros\providers.py:168:def vertex_payload_from_messages(
+tauros\providers.py:195:def extract_vertex_text(data: dict) -> str:
+tauros\providers.py:207:def adc_access_token() -> str:
+tauros\providers.py:230:class VertexProvider(LLMProvider):
+tauros\providers.py:295:class FallbackProvider(LLMProvider):
+tauros\providers.py:309:def build_provider(settings: Settings) -> LLMProvider:
+
+===== tauros\api.py =====
+tauros\api.py:1:from __future__ import annotations
+tauros\api.py:3:import asyncio
+tauros\api.py:4:import json
+tauros\api.py:5:import logging
+tauros\api.py:6:import secrets
+tauros\api.py:7:from pathlib import Path
+tauros\api.py:9:from fastapi import Depends, FastAPI, Header, HTTPException, Request
+tauros\api.py:10:from fastapi.middleware.cors import CORSMiddleware
+tauros\api.py:11:from fastapi.responses import FileResponse, StreamingResponse
+tauros\api.py:12:from fastapi.staticfiles import StaticFiles
+tauros\api.py:14:from . import __version__
+tauros\api.py:15:from .auth import AuthService, AuthUser, is_loopback_host
+tauros\api.py:16:from .database import Database
+tauros\api.py:17:from .memory import MemoryManager
+tauros\api.py:18:from .models import (
+tauros\api.py:33:from .orchestrator import Orchestrator
+tauros\api.py:34:from .planner import Planner
+tauros\api.py:35:from .policy import PolicyEngine
+tauros\api.py:36:from .providers import build_provider
+tauros\api.py:37:from .privileges import PrivilegeLevel, PrivilegeService
+tauros\api.py:38:from .security import (
+tauros\api.py:43:from .brain import BrainRuntime, load_brain_override
+tauros\api.py:44:from .rules import AGENT_CATALOG, RuleStore
+tauros\api.py:45:from .settings import settings
+tauros\api.py:48:from .tools import ToolRegistry
+tauros\api.py:49:from .writes import WriteService
+tauros\api.py:123:def _file(name: str, media_type: str | None = None) -> FileResponse:
+tauros\api.py:136:def product_home() -> FileResponse:
+tauros\api.py:146:def operator_console() -> FileResponse:
+tauros\api.py:151:def dashboard_index() -> FileResponse:
+tauros\api.py:156:def product_app() -> FileResponse:
+tauros\api.py:161:def web_manifest() -> FileResponse:
+tauros\api.py:166:def service_worker() -> FileResponse:
+tauros\api.py:171:def offline_page() -> FileResponse:
+tauros\api.py:176:def favicon() -> FileResponse:
+tauros\api.py:184:def pwa_icon(name: str) -> FileResponse:
+tauros\api.py:192:def require_user(authorization: str | None = Header(default=None)) -> AuthUser:
+tauros\api.py:201:def require_operator(user: AuthUser = Depends(require_user)) -> AuthUser:
+tauros\api.py:208:def health() -> dict:
+tauros\api.py:228:def auth_register(body: AuthRegister) -> dict:
+tauros\api.py:238:def auth_login(body: AuthLogin) -> dict:
+tauros\api.py:246:def auth_guest() -> dict:
+tauros\api.py:251:def auth_local(request: Request) -> dict:
+tauros\api.py:262:def auth_gmail_config() -> dict:
+tauros\api.py:276:def auth_gmail_request_code(body: dict) -> dict:
+tauros\api.py:297:def auth_gmail_verify_code(body: dict) -> dict:
+tauros\api.py:318:def auth_google(body: dict) -> dict:
+tauros\api.py:341:def auth_me(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:354:def privilege_status(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:359:def privilege_elevate(body: ElevateRequest, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:404:def privilege_revoke(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:412:def list_write_proposals(
+tauros\api.py:421:def get_write_proposal(proposal_id: str, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:431:def propose_write_api(body: WriteProposeRequest, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:451:def approve_write(
+tauros\api.py:474:def reject_write(proposal_id: str, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:484:def restore_write(body: WriteRestoreRequest, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:501:def auth_logout(authorization: str | None = Header(default=None)) -> dict:
+tauros\api.py:517:def list_tools(user: AuthUser = Depends(require_user)) -> list[dict[str, str]]:
+tauros\api.py:522:def problem_analyze(
+tauros\api.py:543:def problem_status(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:550:async def chat(request: ChatRequest, user: AuthUser = Depends(require_user)) -> ChatResponse:
+tauros\api.py:562:async def chat_stream(request: ChatRequest, user: AuthUser = Depends(require_user)) -> StreamingResponse:
+tauros\api.py:583:def add_memory(item: MemoryCreate, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:588:def list_memories(
+tauros\api.py:598:def search_memories(q: str, limit: int = 20, user: AuthUser = Depends(require_user)) -> list[dict]:
+tauros\api.py:603:def correct_memory(
+tauros\api.py:613:def confirm_memories(body: MemoryConfirmBatch, user: AuthUser = Depends(require_user)) -> list[dict]:
+tauros\api.py:623:def forget_memory(memory_id: int, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:628:def open_loops(limit: int = 100, user: AuthUser = Depends(require_user)) -> list[dict]:
+tauros\api.py:638:def resolve_open_loop(memory_id: int, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:649:def add_decision(item: DecisionCreate, user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:663:def list_decisions(
+tauros\api.py:670:def patch_decision(
+tauros\api.py:688:def daily_brief(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:693:def consolidate_memories(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:700:def list_audit(limit: int = 100, user: AuthUser = Depends(require_operator)) -> list[dict]:
+tauros\api.py:705:def export_data(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:718:def _rule_store() -> RuleStore:
+tauros\api.py:723:def list_rules(user: AuthUser = Depends(require_operator)) -> dict:
+tauros\api.py:729:def replace_rules(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+tauros\api.py:742:def add_rule(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+tauros\api.py:752:def patch_rule(rule_id: str, body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+tauros\api.py:763:def delete_rule(rule_id: str, user: AuthUser = Depends(require_operator)) -> dict:
+tauros\api.py:771:def evaluate_rule(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+tauros\api.py:786:def list_agents(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:791:def get_brain(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:796:def put_brain(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+tauros\api.py:814:def security_status(user: AuthUser = Depends(require_user)) -> dict:
+tauros\api.py:827:def dashboard_stats(user: AuthUser = Depends(require_user)) -> dict:
+
+

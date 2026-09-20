@@ -1,0 +1,742 @@
+===== FASTAPI ROUTES =====
+
+> tauros\api.py:135:@app.get("/")
+  tauros\api.py:136:def product_home() -> FileResponse:
+  tauros\api.py:137:    # Product UI (login + chat). Console operativa resta su /console
+  tauros\api.py:138:    app_page = WEB_DIR / "app.html"
+  tauros\api.py:139:    if app_page.exists():
+  tauros\api.py:140:        return _file("app.html", "text/html; charset=utf-8")
+> tauros\api.py:144:@app.get("/console")
+> tauros\api.py:145:@app.get("/console/")
+  tauros\api.py:146:def operator_console() -> FileResponse:
+  tauros\api.py:147:    return _file("index.html", "text/html; charset=utf-8")
+  tauros\api.py:148:
+  tauros\api.py:149:
+> tauros\api.py:150:@app.get("/index.html")
+  tauros\api.py:151:def dashboard_index() -> FileResponse:
+  tauros\api.py:152:    return _file("index.html", "text/html; charset=utf-8")
+  tauros\api.py:153:
+  tauros\api.py:154:
+> tauros\api.py:155:@app.get("/app.html")
+  tauros\api.py:156:def product_app() -> FileResponse:
+  tauros\api.py:157:    return _file("app.html", "text/html; charset=utf-8")
+  tauros\api.py:158:
+  tauros\api.py:159:
+> tauros\api.py:160:@app.get("/manifest.webmanifest")
+  tauros\api.py:161:def web_manifest() -> FileResponse:
+  tauros\api.py:162:    return _file("manifest.webmanifest", "application/manifest+json")
+  tauros\api.py:163:
+  tauros\api.py:164:
+> tauros\api.py:165:@app.get("/sw.js")
+  tauros\api.py:166:def service_worker() -> FileResponse:
+  tauros\api.py:167:    return _file("sw.js", "application/javascript; charset=utf-8")
+  tauros\api.py:168:
+  tauros\api.py:169:
+> tauros\api.py:170:@app.get("/offline.html")
+  tauros\api.py:171:def offline_page() -> FileResponse:
+  tauros\api.py:172:    return _file("offline.html", "text/html; charset=utf-8")
+  tauros\api.py:173:
+  tauros\api.py:174:
+> tauros\api.py:175:@app.get("/favicon.ico")
+  tauros\api.py:176:def favicon() -> FileResponse:
+  tauros\api.py:177:    icon = WEB_DIR / "icons" / "icon-32.png"
+  tauros\api.py:178:    if not icon.exists():
+  tauros\api.py:179:        raise HTTPException(status_code=404, detail="favicon non trovato")
+  tauros\api.py:180:    return FileResponse(icon, media_type="image/png")
+> tauros\api.py:183:@app.get("/icons/{name}")
+  tauros\api.py:184:def pwa_icon(name: str) -> FileResponse:
+  tauros\api.py:185:    safe = Path(name).name
+  tauros\api.py:186:    icon = WEB_DIR / "icons" / safe
+  tauros\api.py:187:    if not icon.exists() or not icon.is_file():
+  tauros\api.py:188:        raise HTTPException(status_code=404, detail="icon non trovato")
+> tauros\api.py:207:@app.get("/health")
+  tauros\api.py:208:def health() -> dict:
+  tauros\api.py:209:    return {
+  tauros\api.py:210:        "ok": _token_error is None,
+  tauros\api.py:211:        "name": settings.name,
+  tauros\api.py:212:        "version": __version__,
+> tauros\api.py:227:@app.post("/auth/register")
+  tauros\api.py:228:def auth_register(body: AuthRegister) -> dict:
+  tauros\api.py:229:    if not settings.allow_open_registration:
+  tauros\api.py:230:        raise HTTPException(status_code=403, detail="Registrazione disabilitata")
+  tauros\api.py:231:    try:
+  tauros\api.py:232:        return auth_service.register(body.username, body.password)
+> tauros\api.py:237:@app.post("/auth/login")
+  tauros\api.py:238:def auth_login(body: AuthLogin) -> dict:
+  tauros\api.py:239:    try:
+  tauros\api.py:240:        return auth_service.login(body.username, body.password)
+  tauros\api.py:241:    except ValueError as exc:
+  tauros\api.py:242:        raise HTTPException(status_code=401, detail=str(exc)) from exc
+> tauros\api.py:245:@app.post("/auth/guest")
+  tauros\api.py:246:def auth_guest() -> dict:
+  tauros\api.py:247:    return auth_service.guest()
+  tauros\api.py:248:
+  tauros\api.py:249:
+> tauros\api.py:250:@app.post("/auth/local")
+  tauros\api.py:251:def auth_local(request: Request) -> dict:
+  tauros\api.py:252:    """One-click owner login, only from this machine (loopback)."""
+  tauros\api.py:253:    if not settings.local_click_login:
+  tauros\api.py:254:        raise HTTPException(status_code=403, detail="Login locale disabilitato")
+  tauros\api.py:255:    host = request.client.host if request.client else ""
+> tauros\api.py:261:@app.get("/auth/gmail/config")
+  tauros\api.py:262:def auth_gmail_config() -> dict:
+  tauros\api.py:263:    """Config pubblica per la pagina di login (niente secret)."""
+  tauros\api.py:264:    return {
+  tauros\api.py:265:        "google_client_id": settings.google_client_id or "",
+  tauros\api.py:266:        "google_enabled": bool(settings.google_client_id),
+> tauros\api.py:275:@app.post("/auth/gmail/request-code")
+  tauros\api.py:276:def auth_gmail_request_code(body: dict) -> dict:
+  tauros\api.py:277:    from .gmail_auth import GmailAuthConfig, GmailAuthService
+  tauros\api.py:278:
+  tauros\api.py:279:    svc = GmailAuthService(
+  tauros\api.py:280:        db,
+> tauros\api.py:296:@app.post("/auth/gmail/verify-code")
+  tauros\api.py:297:def auth_gmail_verify_code(body: dict) -> dict:
+  tauros\api.py:298:    from .gmail_auth import GmailAuthConfig, GmailAuthService
+  tauros\api.py:299:
+  tauros\api.py:300:    svc = GmailAuthService(
+  tauros\api.py:301:        db,
+> tauros\api.py:317:@app.post("/auth/google")
+  tauros\api.py:318:def auth_google(body: dict) -> dict:
+  tauros\api.py:319:    """Body: { \"credential\": \"<Google ID token>\" } da GIS button."""
+  tauros\api.py:320:    from .gmail_auth import GmailAuthConfig, GmailAuthService
+  tauros\api.py:321:
+  tauros\api.py:322:    svc = GmailAuthService(
+> tauros\api.py:340:@app.get("/auth/me")
+  tauros\api.py:341:def auth_me(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:342:    row = db.get_user(user.id)
+  tauros\api.py:343:    if not row:
+  tauros\api.py:344:        raise HTTPException(status_code=404, detail="Utente non trovato")
+  tauros\api.py:345:    priv = privileges.status(user.role, user.id)
+> tauros\api.py:353:@app.get("/privileges")
+  tauros\api.py:354:def privilege_status(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:355:    return privileges.status(user.role, user.id)
+  tauros\api.py:356:
+  tauros\api.py:357:
+> tauros\api.py:358:@app.post("/privileges/elevate")
+  tauros\api.py:359:def privilege_elevate(body: ElevateRequest, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:360:    try:
+  tauros\api.py:361:        level = PrivilegeLevel[body.level.strip().upper()]
+  tauros\api.py:362:    except KeyError as exc:
+  tauros\api.py:363:        raise HTTPException(
+> tauros\api.py:403:@app.post("/privileges/revoke")
+  tauros\api.py:404:def privilege_revoke(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:405:    ok = privileges.revoke(user.id)
+  tauros\api.py:406:    db.audit("privilege_revoked", user.username, {"user_id": user.id, "had_session": ok})
+  tauros\api.py:407:    return {"ok": True, "revoked": ok, "status": privileges.status(user.role, user.id)}
+  tauros\api.py:408:
+> tauros\api.py:411:@app.get("/writes/proposals")
+  tauros\api.py:412:def list_write_proposals(
+  tauros\api.py:413:    status: str | None = None,
+  tauros\api.py:414:    user: AuthUser = Depends(require_user),
+  tauros\api.py:415:) -> list[dict]:
+  tauros\api.py:416:    uid = None if user.is_operator else user.id
+> tauros\api.py:420:@app.get("/writes/proposals/{proposal_id}")
+  tauros\api.py:421:def get_write_proposal(proposal_id: str, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:422:    prop = writes.get(proposal_id)
+  tauros\api.py:423:    if not prop:
+  tauros\api.py:424:        raise HTTPException(status_code=404, detail="Proposta non trovata")
+  tauros\api.py:425:    if not user.is_operator and prop.user_id != user.id:
+> tauros\api.py:430:@app.post("/writes/propose")
+  tauros\api.py:431:def propose_write_api(body: WriteProposeRequest, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:432:    try:
+  tauros\api.py:433:        return writes.propose(
+  tauros\api.py:434:            user_id=user.id,
+  tauros\api.py:435:            actor=user.username,
+> tauros\api.py:450:@app.post("/writes/proposals/{proposal_id}/approve")
+  tauros\api.py:451:def approve_write(
+  tauros\api.py:452:    proposal_id: str, body: WriteApproveRequest, user: AuthUser = Depends(require_user)
+  tauros\api.py:453:) -> dict:
+  tauros\api.py:454:    try:
+  tauros\api.py:455:        return writes.approve(
+> tauros\api.py:473:@app.post("/writes/proposals/{proposal_id}/reject")
+  tauros\api.py:474:def reject_write(proposal_id: str, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:475:    try:
+  tauros\api.py:476:        return writes.reject(proposal_id, actor=user.username, user_id=user.id)
+  tauros\api.py:477:    except KeyError as exc:
+  tauros\api.py:478:        raise HTTPException(status_code=404, detail=str(exc)) from exc
+> tauros\api.py:485:@app.post("/writes/restore")
+  tauros\api.py:486:def restore_write(body: WriteRestoreRequest, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:487:    try:
+  tauros\api.py:488:        return writes.restore_backup(
+  tauros\api.py:489:            path=body.path,
+  tauros\api.py:490:            backup_path=body.backup_path,
+> tauros\api.py:502:@app.post("/auth/logout")
+  tauros\api.py:503:def auth_logout(authorization: str | None = Header(default=None)) -> dict:
+  tauros\api.py:504:    try:
+  tauros\api.py:505:        u = auth_service.resolve_bearer(authorization, settings.api_token)
+  tauros\api.py:506:        if u:
+  tauros\api.py:507:            privileges.revoke(u.id)
+> tauros\api.py:518:@app.get("/tools")
+  tauros\api.py:519:def list_tools(user: AuthUser = Depends(require_user)) -> list[dict[str, str]]:
+  tauros\api.py:520:    return tools.available()
+  tauros\api.py:521:
+  tauros\api.py:522:
+> tauros\api.py:523:@app.post("/problem/analyze")
+  tauros\api.py:524:def problem_analyze(
+  tauros\api.py:525:    body: dict,
+  tauros\api.py:526:    user: AuthUser = Depends(require_user),
+  tauros\api.py:527:) -> dict:
+  tauros\api.py:528:    """Pre-filtro Problem Agent: PROCEED | INTEGRATE | REFRAME."""
+> tauros\api.py:544:@app.get("/problem/status")
+  tauros\api.py:545:def problem_status(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:546:    from .problem_bridge import problem_agent_available
+  tauros\api.py:547:
+  tauros\api.py:548:    return {"available": problem_agent_available(), "path": "integrations/problem_agent"}
+  tauros\api.py:549:
+> tauros\api.py:551:@app.post("/chat", response_model=ChatResponse)
+  tauros\api.py:552:async def chat(request: ChatRequest, user: AuthUser = Depends(require_user)) -> ChatResponse:
+  tauros\api.py:553:    try:
+  tauros\api.py:554:        auth_service.check_can_chat(user)
+  tauros\api.py:555:    except PermissionError as exc:
+  tauros\api.py:556:        raise HTTPException(status_code=429, detail=str(exc)) from exc
+> tauros\api.py:563:@app.post("/chat/stream")
+  tauros\api.py:564:async def chat_stream(request: ChatRequest, user: AuthUser = Depends(require_user)) -> StreamingResponse:
+  tauros\api.py:565:    try:
+  tauros\api.py:566:        auth_service.check_can_chat(user)
+  tauros\api.py:567:    except PermissionError as exc:
+  tauros\api.py:568:        raise HTTPException(status_code=429, detail=str(exc)) from exc
+> tauros\api.py:584:@app.post("/memories")
+  tauros\api.py:585:def add_memory(item: MemoryCreate, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:586:    return memory.remember(item, user_id=user.id)
+  tauros\api.py:587:
+  tauros\api.py:588:
+> tauros\api.py:589:@app.get("/memories")
+  tauros\api.py:590:def list_memories(
+  tauros\api.py:591:    limit: int = 100,
+  tauros\api.py:592:    kind: str | None = None,
+  tauros\api.py:593:    status: str | None = None,
+  tauros\api.py:594:    user: AuthUser = Depends(require_user),
+> tauros\api.py:599:@app.get("/memories/search")
+  tauros\api.py:600:def search_memories(q: str, limit: int = 20, user: AuthUser = Depends(require_user)) -> list[dict]:
+  tauros\api.py:601:    return db.search_memories(q, min(max(limit, 1), 100), include_candidates=True, user_id=user.id)
+  tauros\api.py:602:
+  tauros\api.py:603:
+> tauros\api.py:604:@app.patch("/memories/{memory_id}")
+  tauros\api.py:605:def correct_memory(
+  tauros\api.py:606:    memory_id: int, patch: MemoryPatch, user: AuthUser = Depends(require_user)
+  tauros\api.py:607:) -> dict:
+  tauros\api.py:608:    result = memory.correct(memory_id, patch, user_id=user.id)
+  tauros\api.py:609:    if not result:
+> tauros\api.py:614:@app.post("/memories/confirm")
+  tauros\api.py:615:def confirm_memories(body: MemoryConfirmBatch, user: AuthUser = Depends(require_user)) -> list[dict]:
+  tauros\api.py:616:    confirmed: list[dict] = []
+  tauros\api.py:617:    for memory_id in body.ids:
+  tauros\api.py:618:        result = memory.correct(memory_id, MemoryPatch(status="active"), user_id=user.id)
+  tauros\api.py:619:        if result:
+> tauros\api.py:624:@app.delete("/memories/{memory_id}")
+  tauros\api.py:625:def forget_memory(memory_id: int, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:626:    return {"success": memory.forget(memory_id, user_id=user.id)}
+  tauros\api.py:627:
+  tauros\api.py:628:
+> tauros\api.py:629:@app.get("/open-loops")
+  tauros\api.py:630:def open_loops(limit: int = 100, user: AuthUser = Depends(require_user)) -> list[dict]:
+  tauros\api.py:631:    return db.list_memories(
+  tauros\api.py:632:        min(max(limit, 1), 500),
+  tauros\api.py:633:        kind="open_loop",
+  tauros\api.py:634:        statuses=["active", "candidate"],
+> tauros\api.py:639:@app.post("/open-loops/{memory_id}/resolve")
+  tauros\api.py:640:def resolve_open_loop(memory_id: int, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:641:    result = memory.correct(
+  tauros\api.py:642:        memory_id, MemoryPatch(status="resolved"), user_id=user.id
+  tauros\api.py:643:    )
+  tauros\api.py:644:    if not result:
+> tauros\api.py:650:@app.post("/decisions")
+  tauros\api.py:651:def add_decision(item: DecisionCreate, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:652:    decision_id = db.add_decision(
+  tauros\api.py:653:        item.title,
+  tauros\api.py:654:        item.rationale,
+  tauros\api.py:655:        item.outcome,
+> tauros\api.py:664:@app.get("/decisions")
+  tauros\api.py:665:def list_decisions(
+  tauros\api.py:666:    limit: int = 100, status: str | None = None, user: AuthUser = Depends(require_user)
+  tauros\api.py:667:) -> list[dict]:
+  tauros\api.py:668:    return db.list_decisions(min(max(limit, 1), 500), status, user_id=user.id)
+  tauros\api.py:669:
+> tauros\api.py:671:@app.patch("/decisions/{decision_id}")
+  tauros\api.py:672:def patch_decision(
+  tauros\api.py:673:    decision_id: int, patch: DecisionPatch, user: AuthUser = Depends(require_user)
+  tauros\api.py:674:) -> dict:
+  tauros\api.py:675:    fields = patch.model_dump(exclude_none=True)
+  tauros\api.py:676:    if "revisit_at" in fields and fields["revisit_at"] is not None:
+> tauros\api.py:689:@app.get("/brief")
+  tauros\api.py:690:def daily_brief(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:691:    return orchestrator.build_brief(user.id, is_operator=user.is_operator)
+  tauros\api.py:692:
+  tauros\api.py:693:
+> tauros\api.py:694:@app.post("/memories/consolidate")
+  tauros\api.py:695:def consolidate_memories(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:696:    if user.is_guest:
+  tauros\api.py:697:        raise HTTPException(status_code=403, detail="Ospite non può consolidare memoria permanente")
+  tauros\api.py:698:    return memory.consolidate(user_id=user.id)
+  tauros\api.py:699:
+> tauros\api.py:701:@app.get("/audit")
+  tauros\api.py:702:def list_audit(limit: int = 100, user: AuthUser = Depends(require_operator)) -> list[dict]:
+  tauros\api.py:703:    return db.list_audit(min(max(limit, 1), 500))
+  tauros\api.py:704:
+  tauros\api.py:705:
+> tauros\api.py:706:@app.get("/export")
+  tauros\api.py:707:def export_data(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:708:    # Users export only their slice; operator gets full redacted dump
+  tauros\api.py:709:    if user.is_operator:
+  tauros\api.py:710:        return redact_obj(db.export_all())
+  tauros\api.py:711:    return redact_obj(
+> tauros\api.py:724:@app.get("/rules")
+  tauros\api.py:725:def list_rules(user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:726:    rules = _rule_store().list_rules()
+  tauros\api.py:727:    return {"rules": [r.to_dict() for r in rules], "path": str(settings.rules_path)}
+  tauros\api.py:728:
+  tauros\api.py:729:
+> tauros\api.py:730:@app.put("/rules")
+  tauros\api.py:731:def replace_rules(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:732:    items = body.get("rules")
+  tauros\api.py:733:    if not isinstance(items, list):
+  tauros\api.py:734:        raise HTTPException(status_code=400, detail="Body: { rules: [...] }")
+  tauros\api.py:735:    try:
+> tauros\api.py:743:@app.post("/rules")
+  tauros\api.py:744:def add_rule(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:745:    try:
+  tauros\api.py:746:        rule = _rule_store().add(body)
+  tauros\api.py:747:    except ValueError as exc:
+  tauros\api.py:748:        raise HTTPException(status_code=400, detail=str(exc)) from exc
+> tauros\api.py:753:@app.patch("/rules/{rule_id}")
+  tauros\api.py:754:def patch_rule(rule_id: str, body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:755:    if "enabled" not in body:
+  tauros\api.py:756:        raise HTTPException(status_code=400, detail="Body: { enabled: true|false }")
+  tauros\api.py:757:    rule = _rule_store().set_enabled(rule_id, bool(body.get("enabled")))
+  tauros\api.py:758:    if not rule:
+> tauros\api.py:764:@app.delete("/rules/{rule_id}")
+  tauros\api.py:765:def delete_rule(rule_id: str, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:766:    if not _rule_store().delete(rule_id):
+  tauros\api.py:767:        raise HTTPException(status_code=404, detail="Regola non trovata")
+  tauros\api.py:768:    db.audit("rules_delete", user.username, {"id": rule_id})
+  tauros\api.py:769:    return {"ok": True}
+> tauros\api.py:772:@app.post("/rules/evaluate")
+  tauros\api.py:773:def evaluate_rule(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:774:    tool = str(body.get("tool") or "")
+  tauros\api.py:775:    path = body.get("path")
+  tauros\api.py:776:    hit = _rule_store().evaluate(tool, str(path) if path else None)
+  tauros\api.py:777:    if not hit:
+> tauros\api.py:787:@app.get("/agents")
+  tauros\api.py:788:def list_agents(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:789:    return {"agents": AGENT_CATALOG}
+  tauros\api.py:790:
+  tauros\api.py:791:
+> tauros\api.py:792:@app.get("/brain")
+  tauros\api.py:793:def get_brain(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:794:    return brain.snapshot()
+  tauros\api.py:795:
+  tauros\api.py:796:
+> tauros\api.py:797:@app.put("/brain")
+  tauros\api.py:798:def put_brain(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:799:    from .providers import ProviderError
+  tauros\api.py:800:
+  tauros\api.py:801:    try:
+  tauros\api.py:802:        snap = brain.apply(str(body.get("provider") or ""), str(body.get("model") or ""))
+> tauros\api.py:815:@app.get("/security")
+  tauros\api.py:816:def security_status(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:817:    return {
+  tauros\api.py:818:        "mode": settings.security_mode,
+  tauros\api.py:819:        "host": settings.host,
+  tauros\api.py:820:        "allow_lan_bind": settings.allow_lan_bind,
+> tauros\api.py:828:@app.get("/dashboard/stats")
+  tauros\api.py:829:def dashboard_stats(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:830:    uid = None if user.is_operator else user.id
+  tauros\api.py:831:    active = db.list_memories(500, status="active", user_id=uid if uid else user.id)
+  tauros\api.py:832:    # operator sees only own unless we pass None - for operator show own + system; use user.id always for simplicity
+  tauros\api.py:833:    if user.is_operator:
+
+===== AUTH DEPENDENCIES =====
+  tauros\api.py:190:
+  tauros\api.py:191:
+> tauros\api.py:192:def require_user(authorization: str | None = Header(default=None)) -> AuthUser:
+  tauros\api.py:193:    if _token_error:
+  tauros\api.py:194:        raise HTTPException(status_code=503, detail=_token_error)
+  tauros\api.py:195:    user = auth_service.resolve_bearer(authorization, settings.api_token)
+  tauros\api.py:196:    if not user:
+  tauros\api.py:199:
+  tauros\api.py:200:
+> tauros\api.py:201:def require_operator(user: AuthUser = Depends(require_user)) -> AuthUser:
+> tauros\api.py:202:    if not user.is_operator:
+  tauros\api.py:203:        raise HTTPException(status_code=403, detail="Solo operatore")
+  tauros\api.py:204:    return user
+  tauros\api.py:205:
+  tauros\api.py:206:
+  tauros\api.py:339:
+  tauros\api.py:340:@app.get("/auth/me")
+> tauros\api.py:341:def auth_me(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:342:    row = db.get_user(user.id)
+  tauros\api.py:343:    if not row:
+  tauros\api.py:344:        raise HTTPException(status_code=404, detail="Utente non trovato")
+  tauros\api.py:345:    priv = privileges.status(user.role, user.id)
+  tauros\api.py:346:    return AuthService._public_user(row) | {
+> tauros\api.py:347:        "is_operator": user.is_operator,
+  tauros\api.py:348:        "messages_remaining": user.messages_remaining,
+  tauros\api.py:349:        "privileges": priv,
+  tauros\api.py:350:    }
+  tauros\api.py:351:
+  tauros\api.py:352:
+  tauros\api.py:353:@app.get("/privileges")
+> tauros\api.py:354:def privilege_status(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:355:    return privileges.status(user.role, user.id)
+  tauros\api.py:356:
+  tauros\api.py:357:
+  tauros\api.py:358:@app.post("/privileges/elevate")
+> tauros\api.py:359:def privilege_elevate(body: ElevateRequest, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:360:    try:
+  tauros\api.py:361:        level = PrivilegeLevel[body.level.strip().upper()]
+  tauros\api.py:362:    except KeyError as exc:
+  tauros\api.py:363:        raise HTTPException(
+  tauros\api.py:402:
+  tauros\api.py:403:@app.post("/privileges/revoke")
+> tauros\api.py:404:def privilege_revoke(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:405:    ok = privileges.revoke(user.id)
+  tauros\api.py:406:    db.audit("privilege_revoked", user.username, {"user_id": user.id, "had_session": ok})
+  tauros\api.py:407:    return {"ok": True, "revoked": ok, "status": privileges.status(user.role, user.id)}
+  tauros\api.py:408:
+  tauros\api.py:412:def list_write_proposals(
+  tauros\api.py:413:    status: str | None = None,
+> tauros\api.py:414:    user: AuthUser = Depends(require_user),
+  tauros\api.py:415:) -> list[dict]:
+> tauros\api.py:416:    uid = None if user.is_operator else user.id
+  tauros\api.py:417:    return writes.list_proposals(user_id=uid, status=status)
+  tauros\api.py:418:
+  tauros\api.py:419:
+  tauros\api.py:420:@app.get("/writes/proposals/{proposal_id}")
+> tauros\api.py:421:def get_write_proposal(proposal_id: str, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:422:    prop = writes.get(proposal_id)
+  tauros\api.py:423:    if not prop:
+  tauros\api.py:424:        raise HTTPException(status_code=404, detail="Proposta non trovata")
+> tauros\api.py:425:    if not user.is_operator and prop.user_id != user.id:
+  tauros\api.py:426:        raise HTTPException(status_code=403, detail="Proposta di un altro utente")
+  tauros\api.py:427:    return prop.to_public(include_full=True)
+  tauros\api.py:428:
+  tauros\api.py:429:
+  tauros\api.py:430:@app.post("/writes/propose")
+> tauros\api.py:431:def propose_write_api(body: WriteProposeRequest, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:432:    try:
+  tauros\api.py:433:        return writes.propose(
+  tauros\api.py:434:            user_id=user.id,
+  tauros\api.py:435:            actor=user.username,
+  tauros\api.py:450:@app.post("/writes/proposals/{proposal_id}/approve")
+  tauros\api.py:451:def approve_write(
+> tauros\api.py:452:    proposal_id: str, body: WriteApproveRequest, user: AuthUser = Depends(require_user)
+  tauros\api.py:453:) -> dict:
+  tauros\api.py:454:    try:
+  tauros\api.py:455:        return writes.approve(
+  tauros\api.py:456:            proposal_id,
+  tauros\api.py:457:            actor=user.username,
+  tauros\api.py:458:            user_id=user.id,
+> tauros\api.py:459:            role=user.role if not user.is_operator else "operator",
+  tauros\api.py:460:            confirm=body.confirm,
+  tauros\api.py:461:            strong_confirmation=body.strong_confirmation,
+  tauros\api.py:462:        )
+  tauros\api.py:463:    except KeyError as exc:
+  tauros\api.py:472:
+  tauros\api.py:473:@app.post("/writes/proposals/{proposal_id}/reject")
+> tauros\api.py:474:def reject_write(proposal_id: str, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:475:    try:
+  tauros\api.py:476:        return writes.reject(proposal_id, actor=user.username, user_id=user.id)
+  tauros\api.py:477:    except KeyError as exc:
+  tauros\api.py:478:        raise HTTPException(status_code=404, detail=str(exc)) from exc
+  tauros\api.py:484:
+  tauros\api.py:485:@app.post("/writes/restore")
+> tauros\api.py:486:def restore_write(body: WriteRestoreRequest, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:487:    try:
+  tauros\api.py:488:        return writes.restore_backup(
+  tauros\api.py:489:            path=body.path,
+  tauros\api.py:490:            backup_path=body.backup_path,
+  tauros\api.py:491:            user_id=user.id,
+  tauros\api.py:492:            actor=user.username,
+> tauros\api.py:493:            role=user.role if not user.is_operator else "operator",
+  tauros\api.py:494:            strong_confirmation=body.strong_confirmation,
+  tauros\api.py:495:        )
+  tauros\api.py:496:    except PermissionError as exc:
+  tauros\api.py:497:        raise HTTPException(status_code=403, detail=str(exc)) from exc
+  tauros\api.py:517:# ---------- Chat ----------
+  tauros\api.py:518:@app.get("/tools")
+> tauros\api.py:519:def list_tools(user: AuthUser = Depends(require_user)) -> list[dict[str, str]]:
+  tauros\api.py:520:    return tools.available()
+  tauros\api.py:521:
+  tauros\api.py:522:
+  tauros\api.py:523:@app.post("/problem/analyze")
+  tauros\api.py:524:def problem_analyze(
+  tauros\api.py:525:    body: dict,
+> tauros\api.py:526:    user: AuthUser = Depends(require_user),
+  tauros\api.py:527:) -> dict:
+  tauros\api.py:528:    """Pre-filtro Problem Agent: PROCEED | INTEGRATE | REFRAME."""
+  tauros\api.py:529:    from .problem_bridge import analyze_problem, problem_agent_available
+  tauros\api.py:530:
+  tauros\api.py:543:
+  tauros\api.py:544:@app.get("/problem/status")
+> tauros\api.py:545:def problem_status(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:546:    from .problem_bridge import problem_agent_available
+  tauros\api.py:547:
+  tauros\api.py:548:    return {"available": problem_agent_available(), "path": "integrations/problem_agent"}
+  tauros\api.py:549:
+  tauros\api.py:550:
+  tauros\api.py:551:@app.post("/chat", response_model=ChatResponse)
+> tauros\api.py:552:async def chat(request: ChatRequest, user: AuthUser = Depends(require_user)) -> ChatResponse:
+  tauros\api.py:553:    try:
+  tauros\api.py:554:        auth_service.check_can_chat(user)
+  tauros\api.py:555:    except PermissionError as exc:
+  tauros\api.py:556:        raise HTTPException(status_code=429, detail=str(exc)) from exc
+  tauros\api.py:562:
+  tauros\api.py:563:@app.post("/chat/stream")
+> tauros\api.py:564:async def chat_stream(request: ChatRequest, user: AuthUser = Depends(require_user)) -> StreamingResponse:
+  tauros\api.py:565:    try:
+  tauros\api.py:566:        auth_service.check_can_chat(user)
+  tauros\api.py:567:    except PermissionError as exc:
+  tauros\api.py:568:        raise HTTPException(status_code=429, detail=str(exc)) from exc
+  tauros\api.py:583:# ---------- Memory (scoped) ----------
+  tauros\api.py:584:@app.post("/memories")
+> tauros\api.py:585:def add_memory(item: MemoryCreate, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:586:    return memory.remember(item, user_id=user.id)
+  tauros\api.py:587:
+  tauros\api.py:588:
+  tauros\api.py:589:@app.get("/memories")
+  tauros\api.py:592:    kind: str | None = None,
+  tauros\api.py:593:    status: str | None = None,
+> tauros\api.py:594:    user: AuthUser = Depends(require_user),
+  tauros\api.py:595:) -> list[dict]:
+  tauros\api.py:596:    return db.list_memories(min(max(limit, 1), 500), kind, status, user_id=user.id)
+  tauros\api.py:597:
+  tauros\api.py:598:
+  tauros\api.py:599:@app.get("/memories/search")
+> tauros\api.py:600:def search_memories(q: str, limit: int = 20, user: AuthUser = Depends(require_user)) -> list[dict]:
+  tauros\api.py:601:    return db.search_memories(q, min(max(limit, 1), 100), include_candidates=True, user_id=user.id)
+  tauros\api.py:602:
+  tauros\api.py:603:
+  tauros\api.py:604:@app.patch("/memories/{memory_id}")
+  tauros\api.py:605:def correct_memory(
+> tauros\api.py:606:    memory_id: int, patch: MemoryPatch, user: AuthUser = Depends(require_user)
+  tauros\api.py:607:) -> dict:
+  tauros\api.py:608:    result = memory.correct(memory_id, patch, user_id=user.id)
+  tauros\api.py:609:    if not result:
+  tauros\api.py:610:        raise HTTPException(status_code=404, detail="Memoria non trovata")
+  tauros\api.py:613:
+  tauros\api.py:614:@app.post("/memories/confirm")
+> tauros\api.py:615:def confirm_memories(body: MemoryConfirmBatch, user: AuthUser = Depends(require_user)) -> list[dict]:
+  tauros\api.py:616:    confirmed: list[dict] = []
+  tauros\api.py:617:    for memory_id in body.ids:
+  tauros\api.py:618:        result = memory.correct(memory_id, MemoryPatch(status="active"), user_id=user.id)
+  tauros\api.py:619:        if result:
+  tauros\api.py:623:
+  tauros\api.py:624:@app.delete("/memories/{memory_id}")
+> tauros\api.py:625:def forget_memory(memory_id: int, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:626:    return {"success": memory.forget(memory_id, user_id=user.id)}
+  tauros\api.py:627:
+  tauros\api.py:628:
+  tauros\api.py:629:@app.get("/open-loops")
+> tauros\api.py:630:def open_loops(limit: int = 100, user: AuthUser = Depends(require_user)) -> list[dict]:
+  tauros\api.py:631:    return db.list_memories(
+  tauros\api.py:632:        min(max(limit, 1), 500),
+  tauros\api.py:633:        kind="open_loop",
+  tauros\api.py:634:        statuses=["active", "candidate"],
+  tauros\api.py:638:
+  tauros\api.py:639:@app.post("/open-loops/{memory_id}/resolve")
+> tauros\api.py:640:def resolve_open_loop(memory_id: int, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:641:    result = memory.correct(
+  tauros\api.py:642:        memory_id, MemoryPatch(status="resolved"), user_id=user.id
+  tauros\api.py:643:    )
+  tauros\api.py:644:    if not result:
+  tauros\api.py:649:
+  tauros\api.py:650:@app.post("/decisions")
+> tauros\api.py:651:def add_decision(item: DecisionCreate, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:652:    decision_id = db.add_decision(
+  tauros\api.py:653:        item.title,
+  tauros\api.py:654:        item.rationale,
+  tauros\api.py:655:        item.outcome,
+  tauros\api.py:664:@app.get("/decisions")
+  tauros\api.py:665:def list_decisions(
+> tauros\api.py:666:    limit: int = 100, status: str | None = None, user: AuthUser = Depends(require_user)
+  tauros\api.py:667:) -> list[dict]:
+  tauros\api.py:668:    return db.list_decisions(min(max(limit, 1), 500), status, user_id=user.id)
+  tauros\api.py:669:
+  tauros\api.py:670:
+  tauros\api.py:671:@app.patch("/decisions/{decision_id}")
+  tauros\api.py:672:def patch_decision(
+> tauros\api.py:673:    decision_id: int, patch: DecisionPatch, user: AuthUser = Depends(require_user)
+  tauros\api.py:674:) -> dict:
+  tauros\api.py:675:    fields = patch.model_dump(exclude_none=True)
+  tauros\api.py:676:    if "revisit_at" in fields and fields["revisit_at"] is not None:
+  tauros\api.py:677:        fields["revisit_at"] = fields["revisit_at"].isoformat()
+  tauros\api.py:688:
+  tauros\api.py:689:@app.get("/brief")
+> tauros\api.py:690:def daily_brief(user: AuthUser = Depends(require_user)) -> dict:
+> tauros\api.py:691:    return orchestrator.build_brief(user.id, is_operator=user.is_operator)
+  tauros\api.py:692:
+  tauros\api.py:693:
+  tauros\api.py:694:@app.post("/memories/consolidate")
+> tauros\api.py:695:def consolidate_memories(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:696:    if user.is_guest:
+  tauros\api.py:697:        raise HTTPException(status_code=403, detail="Ospite non può consolidare memoria permanente")
+  tauros\api.py:698:    return memory.consolidate(user_id=user.id)
+  tauros\api.py:699:
+  tauros\api.py:700:
+  tauros\api.py:701:@app.get("/audit")
+> tauros\api.py:702:def list_audit(limit: int = 100, user: AuthUser = Depends(require_operator)) -> list[dict]:
+  tauros\api.py:703:    return db.list_audit(min(max(limit, 1), 500))
+  tauros\api.py:704:
+  tauros\api.py:705:
+  tauros\api.py:706:@app.get("/export")
+> tauros\api.py:707:def export_data(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:708:    # Users export only their slice; operator gets full redacted dump
+> tauros\api.py:709:    if user.is_operator:
+  tauros\api.py:710:        return redact_obj(db.export_all())
+  tauros\api.py:711:    return redact_obj(
+  tauros\api.py:712:        {
+  tauros\api.py:713:            "memories": db.list_memories(500, user_id=user.id),
+  tauros\api.py:723:
+  tauros\api.py:724:@app.get("/rules")
+> tauros\api.py:725:def list_rules(user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:726:    rules = _rule_store().list_rules()
+  tauros\api.py:727:    return {"rules": [r.to_dict() for r in rules], "path": str(settings.rules_path)}
+  tauros\api.py:728:
+  tauros\api.py:729:
+  tauros\api.py:730:@app.put("/rules")
+> tauros\api.py:731:def replace_rules(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:732:    items = body.get("rules")
+  tauros\api.py:733:    if not isinstance(items, list):
+  tauros\api.py:734:        raise HTTPException(status_code=400, detail="Body: { rules: [...] }")
+  tauros\api.py:735:    try:
+  tauros\api.py:742:
+  tauros\api.py:743:@app.post("/rules")
+> tauros\api.py:744:def add_rule(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:745:    try:
+  tauros\api.py:746:        rule = _rule_store().add(body)
+  tauros\api.py:747:    except ValueError as exc:
+  tauros\api.py:748:        raise HTTPException(status_code=400, detail=str(exc)) from exc
+  tauros\api.py:752:
+  tauros\api.py:753:@app.patch("/rules/{rule_id}")
+> tauros\api.py:754:def patch_rule(rule_id: str, body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:755:    if "enabled" not in body:
+  tauros\api.py:756:        raise HTTPException(status_code=400, detail="Body: { enabled: true|false }")
+  tauros\api.py:757:    rule = _rule_store().set_enabled(rule_id, bool(body.get("enabled")))
+  tauros\api.py:758:    if not rule:
+  tauros\api.py:763:
+  tauros\api.py:764:@app.delete("/rules/{rule_id}")
+> tauros\api.py:765:def delete_rule(rule_id: str, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:766:    if not _rule_store().delete(rule_id):
+  tauros\api.py:767:        raise HTTPException(status_code=404, detail="Regola non trovata")
+  tauros\api.py:768:    db.audit("rules_delete", user.username, {"id": rule_id})
+  tauros\api.py:769:    return {"ok": True}
+  tauros\api.py:771:
+  tauros\api.py:772:@app.post("/rules/evaluate")
+> tauros\api.py:773:def evaluate_rule(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:774:    tool = str(body.get("tool") or "")
+  tauros\api.py:775:    path = body.get("path")
+  tauros\api.py:776:    hit = _rule_store().evaluate(tool, str(path) if path else None)
+  tauros\api.py:777:    if not hit:
+  tauros\api.py:786:
+  tauros\api.py:787:@app.get("/agents")
+> tauros\api.py:788:def list_agents(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:789:    return {"agents": AGENT_CATALOG}
+  tauros\api.py:790:
+  tauros\api.py:791:
+  tauros\api.py:792:@app.get("/brain")
+> tauros\api.py:793:def get_brain(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:794:    return brain.snapshot()
+  tauros\api.py:795:
+  tauros\api.py:796:
+  tauros\api.py:797:@app.put("/brain")
+> tauros\api.py:798:def put_brain(body: dict, user: AuthUser = Depends(require_operator)) -> dict:
+  tauros\api.py:799:    from .providers import ProviderError
+  tauros\api.py:800:
+  tauros\api.py:801:    try:
+  tauros\api.py:802:        snap = brain.apply(str(body.get("provider") or ""), str(body.get("model") or ""))
+  tauros\api.py:814:
+  tauros\api.py:815:@app.get("/security")
+> tauros\api.py:816:def security_status(user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:817:    return {
+  tauros\api.py:818:        "mode": settings.security_mode,
+  tauros\api.py:819:        "host": settings.host,
+  tauros\api.py:820:        "allow_lan_bind": settings.allow_lan_bind,
+> tauros\api.py:821:        "allowlist": [str(p) for p in settings.allowlist_paths()] if user.is_operator else ["(protetto)"],
+> tauros\api.py:822:        "blocklist": [str(p) for p in settings.blocklist_paths()] if user.is_operator else [],
+  tauros\api.py:823:        "max_file_bytes": settings.max_file_bytes,
+  tauros\api.py:824:        "max_tool_steps": settings.max_tool_steps,
+  tauros\api.py:825:    }
+  tauros\api.py:826:
+  tauros\api.py:827:
+  tauros\api.py:828:@app.get("/dashboard/stats")
+> tauros\api.py:829:def dashboard_stats(user: AuthUser = Depends(require_user)) -> dict:
+> tauros\api.py:830:    uid = None if user.is_operator else user.id
+  tauros\api.py:831:    active = db.list_memories(500, status="active", user_id=uid if uid else user.id)
+  tauros\api.py:832:    # operator sees only own unless we pass None - for operator show own + system; use user.id always for simplicity
+> tauros\api.py:833:    if user.is_operator:
+  tauros\api.py:834:        active = db.list_memories(500, status="active")
+  tauros\api.py:835:        candidates = db.list_memories(500, status="candidate")
+  tauros\api.py:836:        loops = db.list_memories(500, kind="open_loop", statuses=["active", "candidate"])
+  tauros\api.py:837:        decisions = db.list_decisions(200)
+  tauros\api.py:841:        loops = db.list_memories(500, kind="open_loop", statuses=["active", "candidate"], user_id=user.id)
+  tauros\api.py:842:        decisions = db.list_decisions(200, user_id=user.id)
+> tauros\api.py:843:    audit = db.list_audit(20) if user.is_operator else []
+  tauros\api.py:844:    by_kind: dict[str, int] = {}
+  tauros\api.py:845:    for m in active:
+  tauros\api.py:846:        by_kind[m.get("kind") or "unknown"] = by_kind.get(m.get("kind") or "unknown", 0) + 1
+  tauros\api.py:847:    return {
+  tauros\api.py:854:            "username": user.username,
+  tauros\api.py:855:            "is_guest": user.is_guest,
+> tauros\api.py:856:            "is_operator": user.is_operator,
+  tauros\api.py:857:            "messages_remaining": user.messages_remaining,
+  tauros\api.py:858:        },
+  tauros\api.py:859:        "counts": {
+  tauros\api.py:860:            "memories_active": len(active),
+  tauros\auth.py:43:    username: str
+  tauros\auth.py:44:    is_guest: bool
+> tauros\auth.py:45:    is_operator: bool
+  tauros\auth.py:46:    message_count: int
+  tauros\auth.py:47:    max_messages: int | None
+  tauros\auth.py:48:    role: str
+  tauros\auth.py:49:
+  tauros\auth.py:119:        token = self.db.create_session(int(owner["id"]), expires_at=_now() + timedelta(days=SESSION_DAYS))
+  tauros\auth.py:120:        public = self._public_user(owner)
+> tauros\auth.py:121:        public["is_operator"] = True
+  tauros\auth.py:122:        return {"token": token, "user": public}
+  tauros\auth.py:123:
+  tauros\auth.py:124:    def guest(self) -> dict:
+  tauros\auth.py:125:        uname = f"guest_{secrets.token_hex(4)}"
+  tauros\auth.py:154:                username=owner["username"],
+  tauros\auth.py:155:                is_guest=False,
+> tauros\auth.py:156:                is_operator=True,
+  tauros\auth.py:157:                message_count=int(owner.get("message_count") or 0),
+  tauros\auth.py:158:                max_messages=None,
+  tauros\auth.py:159:                role="operator",
+  tauros\auth.py:160:            )
+  tauros\auth.py:177:            username=user["username"],
+  tauros\auth.py:178:            is_guest=bool(user.get("is_guest")),
+> tauros\auth.py:179:            is_operator=user.get("role") in {"owner", "operator"},
+  tauros\auth.py:180:            message_count=int(user.get("message_count") or 0),
+  tauros\auth.py:181:            max_messages=user.get("max_messages"),
+  tauros\auth.py:182:            role=user.get("role") or "user",
+  tauros\auth.py:183:        )
+  tauros\cli.py:166:        print(
+  tauros\cli.py:167:            json.dumps(
+> tauros\cli.py:168:                orchestrator.build_brief(None, is_operator=True),
+  tauros\cli.py:169:                indent=2,
+  tauros\cli.py:170:                ensure_ascii=False,
+  tauros\cli.py:171:            )
+  tauros\cli.py:172:        )
+  tauros\orchestrator.py:340:        return self.plan_executor.run(plan)
+  tauros\orchestrator.py:341:
+> tauros\orchestrator.py:342:    def build_brief(self, user_id: int | None, *, is_operator: bool = False) -> dict[str, Any]:
+  tauros\orchestrator.py:343:        """Continuity brief: open loops, decisions, candidates, recent activity."""
+> tauros\orchestrator.py:344:        uid = None if is_operator else user_id
+> tauros\orchestrator.py:345:        if is_operator:
+  tauros\orchestrator.py:346:            loops = self.db.list_memories(
+  tauros\orchestrator.py:347:                20, kind="open_loop", statuses=["active", "candidate"]
+  tauros\orchestrator.py:348:            )
+  tauros\orchestrator.py:349:            candidates = self.db.list_memories(15, status="candidate")
+  tauros\orchestrator.py:398:            },
+  tauros\orchestrator.py:399:            "user_id": user_id,
+> tauros\orchestrator.py:400:            "scope": "operator" if is_operator else "user",
+  tauros\orchestrator.py:401:        }
+  tauros\telegram_bot.py:144:            user_row = self._ensure_telegram_user(chat_id, tg_username)
+  tauros\telegram_bot.py:145:            uid = int(user_row["id"])
+> tauros\telegram_bot.py:146:            brief = self.orchestrator.build_brief(uid, is_operator=False)
+  tauros\telegram_bot.py:147:            lines = [brief.get("narrative", "Brief"), ""]
+  tauros\telegram_bot.py:148:            for loop in brief.get("open_loops", [])[:5]:
+  tauros\telegram_bot.py:149:                lines.append(f"• loop: {loop.get('content', '')[:120]}")
+  tauros\telegram_bot.py:150:            for d in brief.get("decisions_open", [])[:5]:
+

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JARVIS · LIVE</title>
+  <style>
+    :root { color-scheme: dark; --cyan:#39f3ff; --dim:#7aa; --bg:#04070c; }
+    html, body { margin:0; height:100%; background:radial-gradient(1200px 600px at 50% -10%, #0b2233, var(--bg));
+      color:#d7fbff; font:15px/1.4 "Segoe UI", ui-sans-serif, system-ui; }
+    .hud { max-width:720px; margin:0 auto; padding:28px 20px 48px; }
+    h1 { letter-spacing:.28em; font-size:13px; color:var(--cyan); margin:0 0 6px; }
+    .verdict { min-height:2.4em; font-size:1.25rem; margin:0 0 22px; }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+    .tile { border:1px solid #1c4a58; background:#071018cc; padding:16px; border-radius:10px; }
+    .k { font-size:11px; letter-spacing:.16em; color:var(--dim); text-transform:uppercase; }
+    .v { font-size:2rem; font-variant-numeric:tabular-nums; color:var(--cyan); }
+    .status { margin-top:18px; font-size:12px; color:var(--dim); }
+    .live { color:#3f6; }
+    .hot .v, .warn { color:#ff6b4a; }
+    .warn { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity:.55; } }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <h1>TAUROS HUD · SSE LIVE</h1>
+    <p class="verdict" id="verdict-text">Collegamento al flusso…</p>
+    <div class="grid">
+      <div class="tile"><div class="k">CPU</div><div class="v" id="cpu-value">—</div></div>
+      <div class="tile"><div class="k">RAM</div><div class="v" id="ram-value">—</div></div>
+      <div class="tile" id="temp-tile"><div class="k">TEMP</div><div class="v" id="temp-value">—</div></div>
+    </div>
+    <p class="status"><span id="link" class="live">LIVE</span> · 60 Hz silicio · 4/min Groq</p>
+  </div>
+  <script>
+    const jarvisStream = new EventSource('/api/live');
+    let lastTemp = null;
+    jarvisStream.onmessage = function(event) {
+      const data = JSON.parse(event.data);
+      document.getElementById('cpu-value').innerText = data.cpu + '%';
+      document.getElementById('ram-value').innerText = data.ram + '%';
+      document.getElementById('temp-value').innerText = data.temp + '°C';
+      document.getElementById('verdict-text').innerText = data.verdict;
+      document.getElementById('link').innerText = 'LIVE';
+      const jumped = lastTemp !== null && (data.temp - lastTemp) >= 2;
+      lastTemp = data.temp;
+      document.getElementById('temp-tile').classList.toggle('hot', jumped || data.temp >= 70);
+      const hotVerdict = String(data.verdict || '').toUpperCase().includes('WARNING');
+      document.getElementById('verdict-text').classList.toggle('warn', hotVerdict);
+    };
+    jarvisStream.onerror = function() {
+      document.getElementById('link').innerText = 'RICONNESSIONE';
+    };
+  </script>
+</body>
+</html>

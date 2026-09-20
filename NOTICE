@@ -1,0 +1,22 @@
+TAUROS Cognitive OS
+===================
+
+Copyright (c) 2026 Anouar Dib / TAUROS Project
+
+This product is licensed under the MIT License (see LICENSE).
+
+Third-party software
+--------------------
+This distribution depends on open-source libraries installed via pip.
+Their licenses remain with their respective authors. See licenses/THIRD_PARTY.md
+for a non-exhaustive list of direct dependencies and license notes.
+
+Privacy / local-first
+---------------------
+By default TAUROS binds to 127.0.0.1 and stores data under ./data.
+LLM providers (Groq, OpenAI, Ollama, …) may receive chat content according to
+your configuration. Do not put secrets in chat messages.
+
+PWA icons and web shell
+-----------------------
+Files under web/ are part of TAUROS and covered by the same LICENSE.

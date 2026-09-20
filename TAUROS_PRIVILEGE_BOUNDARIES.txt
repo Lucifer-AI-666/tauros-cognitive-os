@@ -1,0 +1,1008 @@
+===== PRIVILEGES FULL =====
+"""
+Role-aware privileges: freedom with responsibility.
+
+Not permanent god mode — temporary elevation, trust zones, graded confirmation.
+"""
+
+from __future__ import annotations
+
+import secrets
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from enum import Enum, IntEnum
+from pathlib import Path
+from typing import Any
+
+from .security import parse_path_list
+
+
+class PrivilegeLevel(IntEnum):
+    """Higher level = more capability, more responsibility."""
+
+    BASE = 1  # chat, light read/search
+    OPERATOR = 2  # full authorized read, index, git-style analysis
+    ADMINISTRATOR = 3  # write proposals, config, backup/restore of TAUROS
+    CONTROLLED_ROOT = 4  # high-risk ops — temporary unlock only
+
+
+class ConfirmationLevel(str, Enum):
+    NONE = "none"
+    SIMPLE = "simple"  # click / short ack
+    STRONG = "strong"  # typed phrase or re-auth
+    PREVIEW_ROLLBACK = "preview_rollback"  # show plan + rollback before execute
+
+
+class ActionClass(str, Enum):
+    ROUTINE = "routine"
+    IMPORTANT = "important"
+    CRITICAL = "critical"
+    DESTRUCTIVE = "destructive"
+
+
+# Default ceiling for each account role (before temporary elevation).
+ROLE_BASE_LEVEL: dict[str, PrivilegeLevel] = {
+    "guest": PrivilegeLevel.BASE,
+    "user": PrivilegeLevel.BASE,
+    "operator": PrivilegeLevel.OPERATOR,
+    "owner": PrivilegeLevel.ADMINISTRATOR,
+    "admin": PrivilegeLevel.ADMINISTRATOR,
+}
+
+# Tools allowed at each level (cumulative: higher includes lower).
+TOOLS_BY_LEVEL: dict[PrivilegeLevel, frozenset[str]] = {
+    PrivilegeLevel.BASE: frozenset(
+        {"system_info", "disk_usage", "memory_search", "list_directory", "read_text_file"}
+    ),
+    PrivilegeLevel.OPERATOR: frozenset(
+        {
+            "system_info",
+            "disk_usage",
+            "memory_search",
+            "list_directory",
+            "read_text_file",
+            "workspace_search",
+            "git_status",
+            "git_log",
+            "git_diff",
+            "project_summary",
+            "propose_write",
+            "propose_patch",
+            "file_snapshot",
+        }
+    ),
+    PrivilegeLevel.ADMINISTRATOR: frozenset(
+        {
+            "system_info",
+            "disk_usage",
+            "memory_search",
+            "list_directory",
+            "read_text_file",
+            "workspace_search",
+            "git_status",
+            "git_log",
+            "git_diff",
+            "project_summary",
+            "propose_write",
+            "propose_patch",
+            "file_snapshot",
+            "write_file",  # reserved — never direct from LLM; approve path only
+            "file_restore",
+            "tauros_backup",
+            "tauros_restore",
+            "tauros_migrate",
+            "run_dev_command",
+        }
+    ),
+    PrivilegeLevel.CONTROLLED_ROOT: frozenset(
+        {
+            "system_info",
+            "disk_usage",
+            "memory_search",
+            "list_directory",
+            "read_text_file",
+            "workspace_search",
+            "git_status",
+            "git_log",
+            "git_diff",
+            "project_summary",
+            "propose_write",
+            "propose_patch",
+            "file_snapshot",
+            "write_file",
+            "file_restore",
+            "tauros_backup",
+            "tauros_restore",
+            "tauros_migrate",
+            "run_dev_command",
+            "run_shell",
+            "install_package",
+            "delete_file",
+            "firewall_change",
+            "boot_change",
+            "credential_access",
+            "network_exfil",
+            "system_admin",
+            "format_disk",
+            "mass_delete",
+            "drop_database",
+            "wipe_workspace",
+        }
+    ),
+}
+
+# Always need strong / preview even for elevated admins.
+ALWAYS_CRITICAL_TOOLS = frozenset(
+    {
+        "delete_file",
+        "credential_access",
+        "firewall_change",
+        "boot_change",
+        "network_exfil",
+        "system_admin",
+        "format_disk",
+        "mass_delete",
+    }
+)
+
+ALWAYS_DESTRUCTIVE_TOOLS = frozenset(
+    {
+        "format_disk",
+        "mass_delete",
+        "drop_database",
+        "wipe_workspace",
+    }
+)
+
+# Phrase required for STRONG confirmation elevation / critical ops.
+DEFAULT_STRONG_PHRASE = "CONFERMO ADMIN"
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass
+class ElevationSession:
+    id: str
+    user_id: int
+    level: PrivilegeLevel
+    expires_at: datetime
+    scope_path: str | None = None  # optional project trust path
+    single_operation: bool = False
+    reason: str = ""
+    consumed: bool = False
+
+    def active(self) -> bool:
+        if self.consumed and self.single_operation:
+            return False
+        return _now() < self.expires_at
+
+    def to_public(self) -> dict[str, Any]:
+        remaining = max(0, int((self.expires_at - _now()).total_seconds()))
+        return {
+            "id": self.id,
+            "level": self.level.name,
+            "level_value": int(self.level),
+            "expires_at": self.expires_at.isoformat(),
+            "seconds_remaining": remaining,
+            "scope_path": self.scope_path,
+            "single_operation": self.single_operation,
+            "reason": self.reason,
+            "active": self.active(),
+        }
+
+
+@dataclass
+class PrivilegeDecision:
+    allowed: bool
+    reason: str
+    risk: str = "low"
+    confirmation: ConfirmationLevel = ConfirmationLevel.NONE
+    action_class: ActionClass = ActionClass.ROUTINE
+    effective_level: PrivilegeLevel = PrivilegeLevel.BASE
+    requires_elevation_to: PrivilegeLevel | None = None
+    in_trust_zone: bool = False
+    path_decision: dict[str, Any] | None = None
+    preview_required: bool = False
+    rollback_hint: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "allowed": self.allowed,
+            "reason": self.reason,
+            "risk": self.risk,
+            "confirmation": self.confirmation.value,
+            "action_class": self.action_class.value,
+            "effective_level": self.effective_level.name,
+            "requires_elevation_to": (
+                self.requires_elevation_to.name if self.requires_elevation_to else None
+            ),
+            "in_trust_zone": self.in_trust_zone,
+            "path_decision": self.path_decision,
+            "preview_required": self.preview_required,
+            "rollback_hint": self.rollback_hint,
+        }
+
+
+@dataclass
+class PrivilegeService:
+    """In-memory elevation sessions + role defaults + trust zones."""
+
+    trust_zones: list[Path] = field(default_factory=list)
+    default_elevation_minutes: int = 15
+    max_elevation_minutes: int = 60
+    strong_phrase: str = DEFAULT_STRONG_PHRASE
+    _elevations: dict[int, ElevationSession] = field(default_factory=dict)
+
+    @classmethod
+    def from_settings(cls, settings: Any) -> PrivilegeService:
+        zones = parse_path_list(getattr(settings, "trust_zones", "") or "")
+        return cls(
+            trust_zones=[z.expanduser().resolve() for z in zones],
+            default_elevation_minutes=int(
+                getattr(settings, "elevation_default_minutes", 15) or 15
+            ),
+            max_elevation_minutes=int(getattr(settings, "elevation_max_minutes", 60) or 60),
+            strong_phrase=str(
+                getattr(settings, "elevation_strong_phrase", DEFAULT_STRONG_PHRASE)
+                or DEFAULT_STRONG_PHRASE
+            ),
+        )
+
+    def base_level_for_role(self, role: str) -> PrivilegeLevel:
+        return ROLE_BASE_LEVEL.get((role or "user").lower(), PrivilegeLevel.BASE)
+
+    def get_elevation(self, user_id: int) -> ElevationSession | None:
+        session = self._elevations.get(user_id)
+        if not session:
+            return None
+        if not session.active():
+            self._elevations.pop(user_id, None)
+            return None
+        return session
+
+    def effective_level(self, role: str, user_id: int) -> PrivilegeLevel:
+        base = self.base_level_for_role(role)
+        elev = self.get_elevation(user_id)
+        if elev and elev.level > base:
+            return elev.level
+        return base
+
+    def elevate(
+        self,
+        *,
+        user_id: int,
+        role: str,
+        target: PrivilegeLevel,
+        minutes: int | None = None,
+        strong_confirmation: str,
+        reason: str = "",
+        scope_path: str | None = None,
+        single_operation: bool = False,
+    ) -> ElevationSession:
+        """
+        Temporary elevation. Owner/admin can go to ADMINISTRATOR or CONTROLLED_ROOT.
+        Requires strong confirmation phrase.
+        """
+        if strong_confirmation.strip() != self.strong_phrase:
+            raise PermissionError(
+                f"Conferma forte non valida. Digita esattamente: {self.strong_phrase}"
+            )
+
+        base = self.base_level_for_role(role)
+        # Guests and plain users cannot elevate beyond operator without already being elevated path
+        if role in {"guest", "user"} and target > PrivilegeLevel.OPERATOR:
+            raise PermissionError("Questo account non può elevare a livello amministratore")
+        if role in {"guest"}:
+            raise PermissionError("Gli ospiti non possono elevare privilegi")
+
+        if target < base:
+            target = base
+
+        if target > PrivilegeLevel.CONTROLLED_ROOT:
+            target = PrivilegeLevel.CONTROLLED_ROOT
+
+        # Only owner/admin may reach CONTROLLED_ROOT
+        if target >= PrivilegeLevel.CONTROLLED_ROOT and role not in {
+            "owner",
+            "admin",
+            "operator",
+        }:
+            raise PermissionError("CONTROLLED_ROOT riservato ad owner/admin/operator")
+
+        mins = minutes if minutes is not None else self.default_elevation_minutes
+        mins = max(1, min(int(mins), self.max_elevation_minutes))
+        if single_operation:
+            mins = max(mins, 5)
+
+        session = ElevationSession(
+            id=secrets.token_hex(8),
+            user_id=user_id,
+            level=target,
+            expires_at=_now() + timedelta(minutes=mins),
+            scope_path=scope_path,
+            single_operation=single_operation,
+            reason=reason or "elevazione amministrativa",
+        )
+        self._elevations[user_id] = session
+        return session
+
+    def revoke(self, user_id: int) -> bool:
+        return self._elevations.pop(user_id, None) is not None
+
+    def mark_single_op_used(self, user_id: int) -> None:
+        session = self.get_elevation(user_id)
+        if session and session.single_operation:
+            session.consumed = True
+            self._elevations.pop(user_id, None)
+
+    def path_in_trust_zone(self, path: Path | None) -> bool:
+        if path is None:
+            return False
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            return False
+        for zone in self.trust_zones:
+            try:
+                resolved.relative_to(zone)
+                return True
+            except ValueError:
+                if resolved == zone:
+                    return True
+        return False
+
+    def classify_tool(self, tool: str) -> ActionClass:
+        if tool in ALWAYS_DESTRUCTIVE_TOOLS:
+            return ActionClass.DESTRUCTIVE
+        if tool in ALWAYS_CRITICAL_TOOLS:
+            return ActionClass.CRITICAL
+        if tool in {"propose_write", "propose_patch", "file_snapshot"}:
+            return ActionClass.ROUTINE  # draft / snapshot only; apply is separate API
+        if tool.startswith("write_") or tool in {
+            "write_file",
+            "file_restore",
+            "run_shell",
+            "install_package",
+            "tauros_restore",
+        }:
+            return ActionClass.IMPORTANT
+        return ActionClass.ROUTINE
+
+    def confirmation_for(
+        self,
+        action: ActionClass,
+        *,
+        effective: PrivilegeLevel,
+        in_trust_zone: bool,
+    ) -> ConfirmationLevel:
+        if action == ActionClass.DESTRUCTIVE:
+            return ConfirmationLevel.PREVIEW_ROLLBACK
+        if action == ActionClass.CRITICAL:
+            return ConfirmationLevel.STRONG
+        if action == ActionClass.IMPORTANT:
+            if effective >= PrivilegeLevel.ADMINISTRATOR and in_trust_zone:
+                return ConfirmationLevel.NONE
+            if effective >= PrivilegeLevel.ADMINISTRATOR:
+                return ConfirmationLevel.SIMPLE
+            return ConfirmationLevel.STRONG
+        # routine
+        return ConfirmationLevel.NONE
+
+    def authorize_tool(
+        self,
+        *,
+        tool: str,
+        role: str,
+        user_id: int,
+        path: Path | None = None,
+        confirmed: ConfirmationLevel | None = None,
+    ) -> PrivilegeDecision:
+        effective = self.effective_level(role, user_id)
+        action = self.classify_tool(tool)
+        in_zone = self.path_in_trust_zone(path) if path else False
+        elev = self.get_elevation(user_id)
+        if elev and elev.scope_path and path is not None:
+            try:
+                scope = Path(elev.scope_path).expanduser().resolve()
+                path.relative_to(scope)
+                in_zone = True
+            except (ValueError, OSError):
+                # path outside elevation scope — not automatic trust
+                pass
+
+        allowed_tools = TOOLS_BY_LEVEL.get(effective, TOOLS_BY_LEVEL[PrivilegeLevel.BASE])
+        if tool not in allowed_tools:
+            # Find minimum level that would allow
+            need = None
+            for level in PrivilegeLevel:
+                if tool in TOOLS_BY_LEVEL[level]:
+                    need = level
+                    break
+            return PrivilegeDecision(
+                allowed=False,
+                reason=(
+                    f"Tool '{tool}' richiede livello {(need or PrivilegeLevel.ADMINISTRATOR).name}; "
+                    f"attuale {effective.name}. Eleva i privilegi se sei autorizzato."
+                ),
+                risk="high",
+                confirmation=ConfirmationLevel.STRONG,
+                action_class=action,
+                effective_level=effective,
+                requires_elevation_to=need,
+                in_trust_zone=in_zone,
+            )
+
+        conf = self.confirmation_for(action, effective=effective, in_trust_zone=in_zone)
+        # If caller already provided adequate confirmation, allow
+        if conf != ConfirmationLevel.NONE:
+            order = [
+                ConfirmationLevel.NONE,
+                ConfirmationLevel.SIMPLE,
+                ConfirmationLevel.STRONG,
+                ConfirmationLevel.PREVIEW_ROLLBACK,
+            ]
+            if confirmed is None or order.index(confirmed) < order.index(conf):
+                return PrivilegeDecision(
+                    allowed=False,
+                    reason=(
+                        f"Azione {action.value}: serve conferma '{conf.value}' "
+                        f"(livello {effective.name}"
+                        + (", zona di fiducia" if in_zone else "")
+                        + ")"
+                    ),
+                    risk="high" if action in {ActionClass.CRITICAL, ActionClass.DESTRUCTIVE} else "medium",
+                    confirmation=conf,
+                    action_class=action,
+                    effective_level=effective,
+                    in_trust_zone=in_zone,
+                    preview_required=conf == ConfirmationLevel.PREVIEW_ROLLBACK,
+                    rollback_hint=(
+                        "Prepara backup/snapshot prima dell'esecuzione"
+                        if conf == ConfirmationLevel.PREVIEW_ROLLBACK
+                        else None
+                    ),
+                )
+
+        return PrivilegeDecision(
+            allowed=True,
+            reason=f"Consentito a livello {effective.name}"
+            + (" (zona di fiducia)" if in_zone else ""),
+            risk="low" if action == ActionClass.ROUTINE else "medium",
+            confirmation=ConfirmationLevel.NONE,
+            action_class=action,
+            effective_level=effective,
+            in_trust_zone=in_zone,
+        )
+
+    def status(self, role: str, user_id: int) -> dict[str, Any]:
+        elev = self.get_elevation(user_id)
+        effective = self.effective_level(role, user_id)
+        return {
+            "role": role,
+            "base_level": self.base_level_for_role(role).name,
+            "effective_level": effective.name,
+            "effective_level_value": int(effective),
+            "elevation": elev.to_public() if elev else None,
+            "trust_zones": [str(z) for z in self.trust_zones],
+            "tools_available": sorted(TOOLS_BY_LEVEL[effective]),
+            "strong_phrase_hint": "CONFERMO ADMIN (frase configurabile)",
+            "philosophy": (
+                "Più potere → più responsabilità. "
+                "Niente god mode permanente. Elevazione temporanea e audit."
+            ),
+        }
+
+===== API ELEVATION =====
+def auth_me(user: AuthUser = Depends(require_user)) -> dict:
+    row = db.get_user(user.id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Utente non trovato")
+    priv = privileges.status(user.role, user.id)
+    return AuthService._public_user(row) | {
+        "is_operator": user.is_operator,
+        "messages_remaining": user.messages_remaining,
+        "privileges": priv,
+    }
+
+
+@app.get("/privileges")
+def privilege_status(user: AuthUser = Depends(require_user)) -> dict:
+    return privileges.status(user.role, user.id)
+
+
+@app.post("/privileges/elevate")
+def privilege_elevate(body: ElevateRequest, user: AuthUser = Depends(require_user)) -> dict:
+    try:
+        level = PrivilegeLevel[body.level.strip().upper()]
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="level deve essere OPERATOR, ADMINISTRATOR o CONTROLLED_ROOT",
+        ) from exc
+    try:
+        session = privileges.elevate(
+            user_id=user.id,
+            role=user.role,
+            target=level,
+            minutes=body.minutes,
+            strong_confirmation=body.strong_confirmation,
+            reason=body.reason,
+            scope_path=body.scope_path,
+            single_operation=body.single_operation,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    db.audit(
+        "privilege_elevated",
+        user.username,
+        {
+            "user_id": user.id,
+            "level": session.level.name,
+            "expires_at": session.expires_at.isoformat(),
+            "reason": session.reason,
+            "scope_path": session.scope_path,
+            "single_operation": session.single_operation,
+        },
+    )
+    return {
+        "ok": True,
+        "elevation": session.to_public(),
+        "status": privileges.status(user.role, user.id),
+        "message": (
+            "Modalità elevata attiva. Alla scadenza torna il livello base. "
+            "Più potere → più responsabilità."
+        ),
+    }
+
+
+@app.post("/privileges/revoke")
+def privilege_revoke(user: AuthUser = Depends(require_user)) -> dict:
+    ok = privileges.revoke(user.id)
+    db.audit("privilege_revoked", user.username, {"user_id": user.id, "had_session": ok})
+    return {"ok": True, "revoked": ok, "status": privileges.status(user.role, user.id)}
+
+
+# ---------- Supervised writes ----------
+
+===== PRIVILEGE SETTINGS =====
+
+  tauros\api.py:23:    DecisionCreate,
+  tauros\api.py:24:    DecisionPatch,
+> tauros\api.py:25:    ElevateRequest,
+  tauros\api.py:26:    MemoryConfirmBatch,
+  tauros\api.py:27:    MemoryCreate,
+  tauros\api.py:28:    MemoryPatch,
+  tauros\api.py:35:from .policy import PolicyEngine
+  tauros\api.py:36:from .providers import build_provider
+> tauros\api.py:37:from .privileges import PrivilegeLevel, PrivilegeService
+  tauros\api.py:38:from .security import (
+  tauros\api.py:39:    assert_strong_token,
+  tauros\api.py:40:    install_log_redaction,
+  tauros\api.py:356:
+  tauros\api.py:357:
+> tauros\api.py:358:@app.post("/privileges/elevate")
+> tauros\api.py:359:def privilege_elevate(body: ElevateRequest, user: AuthUser = Depends(require_user)) -> dict:
+  tauros\api.py:360:    try:
+> tauros\api.py:361:        level = PrivilegeLevel[body.level.strip().upper()]
+  tauros\api.py:362:    except KeyError as exc:
+  tauros\api.py:363:        raise HTTPException(
+  tauros\api.py:364:            status_code=400,
+> tauros\api.py:365:            detail="level deve essere OPERATOR, ADMINISTRATOR o CONTROLLED_ROOT",
+  tauros\api.py:366:        ) from exc
+  tauros\api.py:367:    try:
+> tauros\api.py:368:        session = privileges.elevate(
+  tauros\api.py:369:            user_id=user.id,
+  tauros\api.py:370:            role=user.role,
+  tauros\api.py:371:            target=level,
+  tauros\api.py:372:            minutes=body.minutes,
+> tauros\api.py:373:            strong_confirmation=body.strong_confirmation,
+  tauros\api.py:374:            reason=body.reason,
+  tauros\api.py:375:            scope_path=body.scope_path,
+  tauros\api.py:376:            single_operation=body.single_operation,
+  tauros\api.py:379:        raise HTTPException(status_code=403, detail=str(exc)) from exc
+  tauros\api.py:380:    db.audit(
+> tauros\api.py:381:        "privilege_elevated",
+  tauros\api.py:382:        user.username,
+  tauros\api.py:383:        {
+  tauros\api.py:384:            "user_id": user.id,
+  tauros\api.py:392:    return {
+  tauros\api.py:393:        "ok": True,
+> tauros\api.py:394:        "elevation": session.to_public(),
+  tauros\api.py:395:        "status": privileges.status(user.role, user.id),
+  tauros\api.py:396:        "message": (
+> tauros\api.py:397:            "Modalità elevata attiva. Alla scadenza torna il livello base. "
+  tauros\api.py:398:            "Più potere → più responsabilità."
+  tauros\api.py:399:        ),
+  tauros\api.py:400:    }
+  tauros\api.py:459:            role=user.role if not user.is_operator else "operator",
+  tauros\api.py:460:            confirm=body.confirm,
+> tauros\api.py:461:            strong_confirmation=body.strong_confirmation,
+  tauros\api.py:462:        )
+  tauros\api.py:463:    except KeyError as exc:
+  tauros\api.py:464:        raise HTTPException(status_code=404, detail=str(exc)) from exc
+  tauros\api.py:492:            actor=user.username,
+  tauros\api.py:493:            role=user.role if not user.is_operator else "operator",
+> tauros\api.py:494:            strong_confirmation=body.strong_confirmation,
+  tauros\api.py:495:        )
+  tauros\api.py:496:    except PermissionError as exc:
+  tauros\api.py:497:        raise HTTPException(status_code=403, detail=str(exc)) from exc
+  tauros\models.py:46:
+  tauros\models.py:47:
+> tauros\models.py:48:class ElevateRequest(BaseModel):
+> tauros\models.py:49:    """Temporary privilege elevation — not permanent god mode."""
+  tauros\models.py:50:
+  tauros\models.py:51:    level: str = Field(
+  tauros\models.py:52:        default="ADMINISTRATOR",
+> tauros\models.py:53:        description="OPERATOR | ADMINISTRATOR | CONTROLLED_ROOT",
+  tauros\models.py:54:    )
+  tauros\models.py:55:    minutes: int | None = Field(default=None, ge=1, le=120)
+> tauros\models.py:56:    strong_confirmation: str = Field(min_length=3, max_length=200)
+  tauros\models.py:57:    reason: str = Field(default="", max_length=500)
+  tauros\models.py:58:    scope_path: str | None = Field(default=None, max_length=2000)
+  tauros\models.py:59:    single_operation: bool = False
+  tauros\models.py:71:class WriteApproveRequest(BaseModel):
+  tauros\models.py:72:    confirm: bool = True
+> tauros\models.py:73:    strong_confirmation: str = Field(default="", max_length=200)
+  tauros\models.py:74:
+  tauros\models.py:75:
+  tauros\models.py:76:class WriteRestoreRequest(BaseModel):
+  tauros\models.py:77:    path: str = Field(min_length=1, max_length=2000)
+  tauros\models.py:78:    backup_path: str = Field(min_length=1, max_length=2000)
+> tauros\models.py:79:    strong_confirmation: str = Field(min_length=3, max_length=200)
+  tauros\models.py:80:
+  tauros\models.py:81:
+  tauros\models.py:82:class Trace(BaseModel):
+  tauros\policy.py:7:from typing import Any
+  tauros\policy.py:8:
+> tauros\policy.py:9:from .privileges import ConfirmationLevel, PrivilegeLevel, PrivilegeService
+  tauros\policy.py:10:from .rules import RuleStore
+  tauros\policy.py:11:from .security import AccessLevel, PathGuard
+  tauros\policy.py:12:from .settings import Settings
+  tauros\policy.py:26:    """
+  tauros\policy.py:27:    Chain:
+> tauros\policy.py:28:      1) privilege level / elevation / confirmation class
+  tauros\policy.py:29:      2) PathGuard (workspace allowlist + trust zones)
+> tauros\policy.py:30:      3) system locked mode still respected for non-elevated sessions
+  tauros\policy.py:31:    """
+  tauros\policy.py:32:
+  tauros\policy.py:33:    filesystem_tools = {
+  tauros\policy.py:87:        effective = self.privileges.effective_level(role, user_id)
+  tauros\policy.py:88:        if mode == "locked" and name in self.filesystem_tools:
+> tauros\policy.py:89:            if effective < PrivilegeLevel.ADMINISTRATOR:
+  tauros\policy.py:90:                return PolicyDecision(
+  tauros\policy.py:91:                    False,
+  tauros\policy.py:92:                    "Modalità sistema locked: eleva ad ADMINISTRATOR per sbloccare",
+  tauros\privileges.py:2:Role-aware privileges: freedom with responsibility.
+  tauros\privileges.py:3:
+> tauros\privileges.py:4:Not permanent god mode — temporary elevation, trust zones, graded confirmation.
+  tauros\privileges.py:5:"""
+  tauros\privileges.py:6:
+  tauros\privileges.py:7:from __future__ import annotations
+  tauros\privileges.py:17:
+  tauros\privileges.py:18:
+> tauros\privileges.py:19:class PrivilegeLevel(IntEnum):
+  tauros\privileges.py:20:    """Higher level = more capability, more responsibility."""
+  tauros\privileges.py:21:
+  tauros\privileges.py:22:    BASE = 1  # chat, light read/search
+  tauros\privileges.py:23:    OPERATOR = 2  # full authorized read, index, git-style analysis
+  tauros\privileges.py:24:    ADMINISTRATOR = 3  # write proposals, config, backup/restore of TAUROS
+> tauros\privileges.py:25:    CONTROLLED_ROOT = 4  # high-risk ops — temporary unlock only
+  tauros\privileges.py:26:
+  tauros\privileges.py:27:
+  tauros\privileges.py:28:class ConfirmationLevel(str, Enum):
+  tauros\privileges.py:40:
+  tauros\privileges.py:41:
+> tauros\privileges.py:42:# Default ceiling for each account role (before temporary elevation).
+> tauros\privileges.py:43:ROLE_BASE_LEVEL: dict[str, PrivilegeLevel] = {
+> tauros\privileges.py:44:    "guest": PrivilegeLevel.BASE,
+> tauros\privileges.py:45:    "user": PrivilegeLevel.BASE,
+> tauros\privileges.py:46:    "operator": PrivilegeLevel.OPERATOR,
+> tauros\privileges.py:47:    "owner": PrivilegeLevel.ADMINISTRATOR,
+> tauros\privileges.py:48:    "admin": PrivilegeLevel.ADMINISTRATOR,
+  tauros\privileges.py:49:}
+  tauros\privileges.py:50:
+  tauros\privileges.py:51:# Tools allowed at each level (cumulative: higher includes lower).
+> tauros\privileges.py:52:TOOLS_BY_LEVEL: dict[PrivilegeLevel, frozenset[str]] = {
+> tauros\privileges.py:53:    PrivilegeLevel.BASE: frozenset(
+  tauros\privileges.py:54:        {"system_info", "disk_usage", "memory_search", "list_directory", "read_text_file"}
+  tauros\privileges.py:55:    ),
+> tauros\privileges.py:56:    PrivilegeLevel.OPERATOR: frozenset(
+  tauros\privileges.py:57:        {
+  tauros\privileges.py:58:            "system_info",
+  tauros\privileges.py:59:            "disk_usage",
+  tauros\privileges.py:71:        }
+  tauros\privileges.py:72:    ),
+> tauros\privileges.py:73:    PrivilegeLevel.ADMINISTRATOR: frozenset(
+  tauros\privileges.py:74:        {
+  tauros\privileges.py:75:            "system_info",
+  tauros\privileges.py:76:            "disk_usage",
+  tauros\privileges.py:94:        }
+  tauros\privileges.py:95:    ),
+> tauros\privileges.py:96:    PrivilegeLevel.CONTROLLED_ROOT: frozenset(
+  tauros\privileges.py:97:        {
+  tauros\privileges.py:98:            "system_info",
+  tauros\privileges.py:99:            "disk_usage",
+  tauros\privileges.py:131:}
+  tauros\privileges.py:132:
+> tauros\privileges.py:133:# Always need strong / preview even for elevated admins.
+  tauros\privileges.py:134:ALWAYS_CRITICAL_TOOLS = frozenset(
+  tauros\privileges.py:135:    {
+  tauros\privileges.py:136:        "delete_file",
+  tauros\privileges.py:154:)
+  tauros\privileges.py:155:
+> tauros\privileges.py:156:# Phrase required for STRONG confirmation elevation / critical ops.
+> tauros\privileges.py:157:DEFAULT_STRONG_PHRASE = "CONFERMO ADMIN"
+  tauros\privileges.py:158:
+  tauros\privileges.py:159:
+  tauros\privileges.py:160:def _now() -> datetime:
+  tauros\privileges.py:163:
+  tauros\privileges.py:164:@dataclass
+> tauros\privileges.py:165:class ElevationSession:
+  tauros\privileges.py:166:    id: str
+  tauros\privileges.py:167:    user_id: int
+> tauros\privileges.py:168:    level: PrivilegeLevel
+  tauros\privileges.py:169:    expires_at: datetime
+  tauros\privileges.py:170:    scope_path: str | None = None  # optional project trust path
+  tauros\privileges.py:171:    single_operation: bool = False
+  tauros\privileges.py:200:    confirmation: ConfirmationLevel = ConfirmationLevel.NONE
+  tauros\privileges.py:201:    action_class: ActionClass = ActionClass.ROUTINE
+> tauros\privileges.py:202:    effective_level: PrivilegeLevel = PrivilegeLevel.BASE
+> tauros\privileges.py:203:    requires_elevation_to: PrivilegeLevel | None = None
+  tauros\privileges.py:204:    in_trust_zone: bool = False
+  tauros\privileges.py:205:    path_decision: dict[str, Any] | None = None
+  tauros\privileges.py:206:    preview_required: bool = False
+  tauros\privileges.py:215:            "action_class": self.action_class.value,
+  tauros\privileges.py:216:            "effective_level": self.effective_level.name,
+> tauros\privileges.py:217:            "requires_elevation_to": (
+> tauros\privileges.py:218:                self.requires_elevation_to.name if self.requires_elevation_to else None
+  tauros\privileges.py:219:            ),
+  tauros\privileges.py:220:            "in_trust_zone": self.in_trust_zone,
+  tauros\privileges.py:221:            "path_decision": self.path_decision,
+  tauros\privileges.py:227:@dataclass
+  tauros\privileges.py:228:class PrivilegeService:
+> tauros\privileges.py:229:    """In-memory elevation sessions + role defaults + trust zones."""
+  tauros\privileges.py:230:
+  tauros\privileges.py:231:    trust_zones: list[Path] = field(default_factory=list)
+> tauros\privileges.py:232:    default_elevation_minutes: int = 15
+> tauros\privileges.py:233:    max_elevation_minutes: int = 60
+> tauros\privileges.py:234:    strong_phrase: str = DEFAULT_STRONG_PHRASE
+> tauros\privileges.py:235:    _elevations: dict[int, ElevationSession] = field(default_factory=dict)
+  tauros\privileges.py:236:
+  tauros\privileges.py:237:    @classmethod
+  tauros\privileges.py:238:    def from_settings(cls, settings: Any) -> PrivilegeService:
+  tauros\privileges.py:240:        return cls(
+  tauros\privileges.py:241:            trust_zones=[z.expanduser().resolve() for z in zones],
+> tauros\privileges.py:242:            default_elevation_minutes=int(
+> tauros\privileges.py:243:                getattr(settings, "elevation_default_minutes", 15) or 15
+  tauros\privileges.py:244:            ),
+> tauros\privileges.py:245:            max_elevation_minutes=int(getattr(settings, "elevation_max_minutes", 60) or 60),
+> tauros\privileges.py:246:            strong_phrase=str(
+> tauros\privileges.py:247:                getattr(settings, "elevation_strong_phrase", DEFAULT_STRONG_PHRASE)
+> tauros\privileges.py:248:                or DEFAULT_STRONG_PHRASE
+  tauros\privileges.py:249:            ),
+  tauros\privileges.py:250:        )
+  tauros\privileges.py:251:
+> tauros\privileges.py:252:    def base_level_for_role(self, role: str) -> PrivilegeLevel:
+> tauros\privileges.py:253:        return ROLE_BASE_LEVEL.get((role or "user").lower(), PrivilegeLevel.BASE)
+  tauros\privileges.py:254:
+> tauros\privileges.py:255:    def get_elevation(self, user_id: int) -> ElevationSession | None:
+> tauros\privileges.py:256:        session = self._elevations.get(user_id)
+  tauros\privileges.py:257:        if not session:
+  tauros\privileges.py:258:            return None
+  tauros\privileges.py:259:        if not session.active():
+> tauros\privileges.py:260:            self._elevations.pop(user_id, None)
+  tauros\privileges.py:261:            return None
+  tauros\privileges.py:262:        return session
+  tauros\privileges.py:263:
+> tauros\privileges.py:264:    def effective_level(self, role: str, user_id: int) -> PrivilegeLevel:
+  tauros\privileges.py:265:        base = self.base_level_for_role(role)
+> tauros\privileges.py:266:        elev = self.get_elevation(user_id)
+  tauros\privileges.py:267:        if elev and elev.level > base:
+  tauros\privileges.py:268:            return elev.level
+  tauros\privileges.py:269:        return base
+  tauros\privileges.py:270:
+> tauros\privileges.py:271:    def elevate(
+  tauros\privileges.py:272:        self,
+  tauros\privileges.py:273:        *,
+  tauros\privileges.py:274:        user_id: int,
+  tauros\privileges.py:275:        role: str,
+> tauros\privileges.py:276:        target: PrivilegeLevel,
+  tauros\privileges.py:277:        minutes: int | None = None,
+> tauros\privileges.py:278:        strong_confirmation: str,
+  tauros\privileges.py:279:        reason: str = "",
+  tauros\privileges.py:280:        scope_path: str | None = None,
+  tauros\privileges.py:281:        single_operation: bool = False,
+> tauros\privileges.py:282:    ) -> ElevationSession:
+  tauros\privileges.py:283:        """
+> tauros\privileges.py:284:        Temporary elevation. Owner/admin can go to ADMINISTRATOR or CONTROLLED_ROOT.
+  tauros\privileges.py:285:        Requires strong confirmation phrase.
+  tauros\privileges.py:286:        """
+> tauros\privileges.py:287:        if strong_confirmation.strip() != self.strong_phrase:
+  tauros\privileges.py:288:            raise PermissionError(
+> tauros\privileges.py:289:                f"Conferma forte non valida. Digita esattamente: {self.strong_phrase}"
+  tauros\privileges.py:290:            )
+  tauros\privileges.py:291:
+  tauros\privileges.py:292:        base = self.base_level_for_role(role)
+> tauros\privileges.py:293:        # Guests and plain users cannot elevate beyond operator without already being elevated path
+> tauros\privileges.py:294:        if role in {"guest", "user"} and target > PrivilegeLevel.OPERATOR:
+  tauros\privileges.py:295:            raise PermissionError("Questo account non può elevare a livello amministratore")
+  tauros\privileges.py:296:        if role in {"guest"}:
+  tauros\privileges.py:297:            raise PermissionError("Gli ospiti non possono elevare privilegi")
+  tauros\privileges.py:300:            target = base
+  tauros\privileges.py:301:
+> tauros\privileges.py:302:        if target > PrivilegeLevel.CONTROLLED_ROOT:
+> tauros\privileges.py:303:            target = PrivilegeLevel.CONTROLLED_ROOT
+  tauros\privileges.py:304:
+> tauros\privileges.py:305:        # Only owner/admin may reach CONTROLLED_ROOT
+> tauros\privileges.py:306:        if target >= PrivilegeLevel.CONTROLLED_ROOT and role not in {
+  tauros\privileges.py:307:            "owner",
+  tauros\privileges.py:308:            "admin",
+  tauros\privileges.py:309:            "operator",
+  tauros\privileges.py:310:        }:
+> tauros\privileges.py:311:            raise PermissionError("CONTROLLED_ROOT riservato ad owner/admin/operator")
+  tauros\privileges.py:312:
+> tauros\privileges.py:313:        mins = minutes if minutes is not None else self.default_elevation_minutes
+> tauros\privileges.py:314:        mins = max(1, min(int(mins), self.max_elevation_minutes))
+  tauros\privileges.py:315:        if single_operation:
+  tauros\privileges.py:316:            mins = max(mins, 5)
+  tauros\privileges.py:317:
+> tauros\privileges.py:318:        session = ElevationSession(
+  tauros\privileges.py:319:            id=secrets.token_hex(8),
+  tauros\privileges.py:320:            user_id=user_id,
+  tauros\privileges.py:321:            level=target,
+  tauros\privileges.py:325:            reason=reason or "elevazione amministrativa",
+  tauros\privileges.py:326:        )
+> tauros\privileges.py:327:        self._elevations[user_id] = session
+  tauros\privileges.py:328:        return session
+  tauros\privileges.py:329:
+  tauros\privileges.py:330:    def revoke(self, user_id: int) -> bool:
+> tauros\privileges.py:331:        return self._elevations.pop(user_id, None) is not None
+  tauros\privileges.py:332:
+  tauros\privileges.py:333:    def mark_single_op_used(self, user_id: int) -> None:
+> tauros\privileges.py:334:        session = self.get_elevation(user_id)
+  tauros\privileges.py:335:        if session and session.single_operation:
+  tauros\privileges.py:336:            session.consumed = True
+> tauros\privileges.py:337:            self._elevations.pop(user_id, None)
+  tauros\privileges.py:338:
+  tauros\privileges.py:339:    def path_in_trust_zone(self, path: Path | None) -> bool:
+  tauros\privileges.py:340:        if path is None:
+  tauros\privileges.py:374:        action: ActionClass,
+  tauros\privileges.py:375:        *,
+> tauros\privileges.py:376:        effective: PrivilegeLevel,
+  tauros\privileges.py:377:        in_trust_zone: bool,
+  tauros\privileges.py:378:    ) -> ConfirmationLevel:
+  tauros\privileges.py:379:        if action == ActionClass.DESTRUCTIVE:
+  tauros\privileges.py:382:            return ConfirmationLevel.STRONG
+  tauros\privileges.py:383:        if action == ActionClass.IMPORTANT:
+> tauros\privileges.py:384:            if effective >= PrivilegeLevel.ADMINISTRATOR and in_trust_zone:
+  tauros\privileges.py:385:                return ConfirmationLevel.NONE
+> tauros\privileges.py:386:            if effective >= PrivilegeLevel.ADMINISTRATOR:
+  tauros\privileges.py:387:                return ConfirmationLevel.SIMPLE
+  tauros\privileges.py:388:            return ConfirmationLevel.STRONG
+  tauros\privileges.py:389:        # routine
+  tauros\privileges.py:402:        action = self.classify_tool(tool)
+  tauros\privileges.py:403:        in_zone = self.path_in_trust_zone(path) if path else False
+> tauros\privileges.py:404:        elev = self.get_elevation(user_id)
+  tauros\privileges.py:405:        if elev and elev.scope_path and path is not None:
+  tauros\privileges.py:406:            try:
+  tauros\privileges.py:407:                scope = Path(elev.scope_path).expanduser().resolve()
+  tauros\privileges.py:409:                in_zone = True
+  tauros\privileges.py:410:            except (ValueError, OSError):
+> tauros\privileges.py:411:                # path outside elevation scope — not automatic trust
+  tauros\privileges.py:412:                pass
+  tauros\privileges.py:413:
+> tauros\privileges.py:414:        allowed_tools = TOOLS_BY_LEVEL.get(effective, TOOLS_BY_LEVEL[PrivilegeLevel.BASE])
+  tauros\privileges.py:415:        if tool not in allowed_tools:
+  tauros\privileges.py:416:            # Find minimum level that would allow
+  tauros\privileges.py:417:            need = None
+> tauros\privileges.py:418:            for level in PrivilegeLevel:
+  tauros\privileges.py:419:                if tool in TOOLS_BY_LEVEL[level]:
+  tauros\privileges.py:420:                    need = level
+  tauros\privileges.py:421:                    break
+  tauros\privileges.py:423:                allowed=False,
+  tauros\privileges.py:424:                reason=(
+> tauros\privileges.py:425:                    f"Tool '{tool}' richiede livello {(need or PrivilegeLevel.ADMINISTRATOR).name}; "
+  tauros\privileges.py:426:                    f"attuale {effective.name}. Eleva i privilegi se sei autorizzato."
+  tauros\privileges.py:427:                ),
+  tauros\privileges.py:428:                risk="high",
+  tauros\privileges.py:430:                action_class=action,
+  tauros\privileges.py:431:                effective_level=effective,
+> tauros\privileges.py:432:                requires_elevation_to=need,
+  tauros\privileges.py:433:                in_trust_zone=in_zone,
+  tauros\privileges.py:434:            )
+  tauros\privileges.py:435:
+  tauros\privileges.py:477:
+  tauros\privileges.py:478:    def status(self, role: str, user_id: int) -> dict[str, Any]:
+> tauros\privileges.py:479:        elev = self.get_elevation(user_id)
+  tauros\privileges.py:480:        effective = self.effective_level(role, user_id)
+  tauros\privileges.py:481:        return {
+  tauros\privileges.py:482:            "role": role,
+  tauros\privileges.py:484:            "effective_level": effective.name,
+  tauros\privileges.py:485:            "effective_level_value": int(effective),
+> tauros\privileges.py:486:            "elevation": elev.to_public() if elev else None,
+  tauros\privileges.py:487:            "trust_zones": [str(z) for z in self.trust_zones],
+  tauros\privileges.py:488:            "tools_available": sorted(TOOLS_BY_LEVEL[effective]),
+> tauros\privileges.py:489:            "strong_phrase_hint": "CONFERMO ADMIN (frase configurabile)",
+  tauros\privileges.py:490:            "philosophy": (
+  tauros\privileges.py:491:                "Più potere → più responsabilità. "
+  tauros\privileges.py:492:                "Niente god mode permanente. Elevazione temporanea e audit."
+  tauros\settings.py:48:    # Zone di fiducia amministrative (più libertà, meno conferma per azioni important)
+  tauros\settings.py:49:    trust_zones: str = ""
+> tauros\settings.py:50:    elevation_default_minutes: int = 15
+> tauros\settings.py:51:    elevation_max_minutes: int = 60
+> tauros\settings.py:52:    elevation_strong_phrase: str = "CONFERMO ADMIN"
+  tauros\settings.py:53:    max_file_bytes: int = 2_000_000
+  tauros\settings.py:54:    max_tool_output_chars: int = 100_000
+  tauros\settings.py:55:    max_tool_steps: int = 8
+> tauros\settings.py:56:    max_plan_steps: int = 3  # base; admin elevation can raise in planner later
+  tauros\settings.py:57:    max_same_tool_calls: int = 3
+  tauros\settings.py:58:    tool_timeout_seconds: int = 30
+  tauros\settings.py:59:    log_level: str = "INFO"
+  tauros\writes.py:17:from typing import Any, Callable
+  tauros\writes.py:18:
+> tauros\writes.py:19:from .privileges import ConfirmationLevel, PrivilegeLevel, PrivilegeService
+  tauros\writes.py:20:from .security import PathGuard, redact_obj
+  tauros\writes.py:21:from .settings import Settings
+  tauros\writes.py:22:
+  tauros\writes.py:170:        return target
+  tauros\writes.py:171:
+> tauros\writes.py:172:    def _assert_writable_mode(self, effective: PrivilegeLevel) -> None:
+  tauros\writes.py:173:        mode = self.settings.security_mode
+  tauros\writes.py:174:        if mode == "locked":
+  tauros\writes.py:175:            raise PermissionError("Modalità locked: nessuna scrittura")
+> tauros\writes.py:176:        if mode == "read_only" and effective < PrivilegeLevel.ADMINISTRATOR:
+  tauros\writes.py:177:            raise PermissionError(
+  tauros\writes.py:178:                "Modalità read_only: eleva ad ADMINISTRATOR per scritture supervisionate"
+  tauros\writes.py:179:            )
+> tauros\writes.py:180:        if effective < PrivilegeLevel.ADMINISTRATOR:
+  tauros\writes.py:181:            raise PermissionError(
+  tauros\writes.py:182:                "Serve livello ADMINISTRATOR (elevazione temporanea dalla console)"
+  tauros\writes.py:183:            )
+  tauros\writes.py:204:        effective = self.privileges.effective_level(role, user_id)
+  tauros\writes.py:205:        # Proposing requires at least OPERATOR (can draft); apply needs ADMIN
+> tauros\writes.py:206:        if effective < PrivilegeLevel.OPERATOR and role not in {"owner", "admin", "operator"}:
+> tauros\writes.py:207:            # Owner is already ADMIN base; plain user can propose only if elevated to OPERATOR+
+> tauros\writes.py:208:            if effective < PrivilegeLevel.OPERATOR:
+  tauros\writes.py:209:                raise PermissionError(
+  tauros\writes.py:210:                    "Per proporre scritture serve almeno OPERATOR (eleva i privilegi)"
+  tauros\writes.py:211:                )
+  tauros\writes.py:332:        role: str,
+  tauros\writes.py:333:        confirm: bool = False,
+> tauros\writes.py:334:        strong_confirmation: str = "",
+  tauros\writes.py:335:    ) -> dict[str, Any]:
+  tauros\writes.py:336:        prop = self.get(proposal_id)
+  tauros\writes.py:337:        if not prop:
+  tauros\writes.py:349:
+  tauros\writes.py:350:        if prop.requires_strong or not prop.in_trust_zone:
+> tauros\writes.py:351:            phrase = self.privileges.strong_phrase
+> tauros\writes.py:352:            if strong_confirmation.strip() != phrase:
+  tauros\writes.py:353:                raise PermissionError(
+  tauros\writes.py:354:                    f"Fuori trust zone: digita esattamente la frase forte: {phrase}"
+  tauros\writes.py:355:                )
+  tauros\writes.py:357:        # Path re-check at apply time
+  tauros\writes.py:358:        target = self._resolve_write_path(prop.path)
+> tauros\writes.py:359:        elev = self.privileges.get_elevation(user_id)
+  tauros\writes.py:360:        if elev and elev.scope_path:
+  tauros\writes.py:361:            try:
+  tauros\writes.py:362:                scope = Path(elev.scope_path).expanduser().resolve()
+  tauros\writes.py:455:        actor: str,
+  tauros\writes.py:456:        role: str,
+> tauros\writes.py:457:        strong_confirmation: str,
+  tauros\writes.py:458:    ) -> dict[str, Any]:
+  tauros\writes.py:459:        effective = self.privileges.effective_level(role, user_id)
+  tauros\writes.py:460:        self._assert_writable_mode(effective)
+> tauros\writes.py:461:        if strong_confirmation.strip() != self.privileges.strong_phrase:
+  tauros\writes.py:462:            raise PermissionError(
+> tauros\writes.py:463:                f"Ripristino richiede frase forte: {self.privileges.strong_phrase}"
+  tauros\writes.py:464:            )
+  tauros\writes.py:465:        target = self._resolve_write_path(path)
+  tauros\writes.py:466:        src = Path(backup_path)
+  tauros\writes.py:495:    ) -> dict[str, Any]:
+  tauros\writes.py:496:        effective = self.privileges.effective_level(role, user_id)
+> tauros\writes.py:497:        if effective < PrivilegeLevel.OPERATOR:
+  tauros\writes.py:498:            raise PermissionError("Snapshot richiede almeno OPERATOR")
+  tauros\writes.py:499:        target = self._resolve_write_path(path)
+  tauros\writes.py:500:        if not target.is_file():
+

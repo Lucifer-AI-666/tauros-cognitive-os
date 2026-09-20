@@ -1,0 +1,841 @@
+===== MEMORY MANAGER =====
+from __future__ import annotations
+
+import re
+
+from .database import Database
+from .models import MemoryCreate, MemoryPatch
+from .security import content_hash
+
+
+class MemoryManager:
+    def __init__(self, db: Database):
+        self.db = db
+
+    def remember(self, item: MemoryCreate, user_id: int | None = None) -> dict:
+        existing = self.db.find_by_hash(
+            content_hash(item.content), include_candidates=True, user_id=user_id
+        )
+        if existing and existing["content"].casefold() == item.content.casefold():
+            return existing
+
+        memory_id = self.db.add_memory(
+            item.content,
+            item.kind,
+            item.importance,
+            item.tags,
+            item.source,
+            item.confidence,
+            item.status,
+            supersedes_id=item.supersedes_id,
+            source_turn_id=item.source_turn_id,
+            source_file=item.source_file,
+            user_id=user_id,
+        )
+        self.db.audit(
+            "memory_created",
+            item.source,
+            {
+                "memory_id": memory_id,
+                "kind": item.kind,
+                "status": item.status,
+                "source": item.source,
+                "user_id": user_id,
+            },
+        )
+        return {"id": memory_id, **item.model_dump()}
+
+    def recall(self, query: str, limit: int = 8, user_id: int | None = None) -> list[dict]:
+        return self.db.search_memories(query, limit, include_candidates=False, user_id=user_id)
+
+    def forget(self, memory_id: int, user_id: int | None = None) -> bool:
+        ok = self.db.deactivate_memory(memory_id, user_id=user_id)
+        self.db.audit(
+            "memory_deactivated", "user", {"memory_id": memory_id, "success": ok, "user_id": user_id}
+        )
+        return ok
+
+    def correct(self, memory_id: int, patch: MemoryPatch, user_id: int | None = None) -> dict | None:
+        updated = self.db.update_memory(
+            memory_id, patch.model_dump(exclude_none=True), user_id=user_id
+        )
+        self.db.audit(
+            "memory_corrected",
+            "user",
+            {
+                "memory_id": memory_id,
+                "fields": list(patch.model_dump(exclude_none=True)),
+                "user_id": user_id,
+            },
+        )
+        return updated
+
+    def extract_candidates(self, text: str) -> list[MemoryCreate]:
+        clean = " ".join(text.strip().split())
+        candidates: list[MemoryCreate] = []
+        rules = [
+            (r"\b(?:ricorda che|memorizza che|tieni a mente che)\s+(.+)", "fact", 8),
+            (r"\b(?:preferisco|mi piace|non mi piace|voglio che)\s+(.+)", "preference", 7),
+            (r"\b(?:il progetto|sto lavorando a|stiamo costruendo)\s+(.+)", "project", 7),
+            (r"\b(?:devo|dobbiamo|resta da|da fare)\s+(.+)", "open_loop", 6),
+            (r"\b(?:ho imparato che|lezione:)\s*(.+)", "lesson", 7),
+        ]
+        for pattern, kind, importance in rules:
+            match = re.search(pattern, clean, re.IGNORECASE)
+            if not match:
+                continue
+            content = match.group(1).strip(" .")
+            if 5 <= len(content) <= 500:
+                candidates.append(
+                    MemoryCreate(
+                        content=content,
+                        kind=kind,  # type: ignore[arg-type]
+                        importance=importance,
+                        tags=["auto-extracted"],
+                        source="conversation",
+                        confidence=0.72,
+                        status="candidate",
+                    )
+                )
+        return candidates[:3]
+
+    def soft_save_candidates(self, text: str, user_id: int | None = None) -> list[dict]:
+        saved = []
+        for candidate in self.extract_candidates(text):
+            existing = self.db.find_by_hash(
+                content_hash(candidate.content), include_candidates=True, user_id=user_id
+            )
+            if existing:
+                continue
+            saved.append(self.remember(candidate, user_id=user_id))
+        return saved
+
+    def consolidate(self, user_id: int | None = None, *, min_confidence: float = 0.85) -> dict:
+        """
+        Light consolidation:
+        - promote high-confidence candidates to active (if no active duplicate)
+        - supersede older active when a newer active supersedes_id points at it
+        Does not invent facts; never auto-promotes low-confidence items.
+        """
+        candidates = self.db.list_memories(
+            200, status="candidate", user_id=user_id
+        )
+        promoted: list[int] = []
+        skipped: list[dict] = []
+        for c in candidates:
+            conf = float(c.get("confidence") or 0)
+            if conf < min_confidence:
+                skipped.append({"id": c["id"], "reason": "confidence_bassa"})
+                continue
+            # Prefer explicit user confirmation for auto-extract; only promote high conf
+            if (c.get("source") or "") == "conversation" and conf < 0.95:
+                skipped.append({"id": c["id"], "reason": "richiede_conferma_utente"})
+                continue
+            updated = self.correct(
+                int(c["id"]), MemoryPatch(status="active"), user_id=user_id
+            )
+            if updated:
+                promoted.append(int(c["id"]))
+        self.db.audit(
+            "memory_consolidate",
+            "system",
+            {"promoted": promoted, "skipped": len(skipped), "user_id": user_id},
+        )
+        return {
+            "promoted_ids": promoted,
+            "promoted": len(promoted),
+            "skipped": skipped[:30],
+            "min_confidence": min_confidence,
+        }
+
+===== DATABASE MEMORY METHODS =====
+
+  from typing import Iterator
+  
+  from .migrations import run_migrations
+> from .security import content_hash, normalize_memory_text, redact_obj
+  
+  
+  class Database:
+      def __init__(self, path: Path, run_migrate: bool = True):
+          self.path = Path(path)
+          self.path.parent.mkdir(parents=True, exist_ok=True)
+          if run_migrate:
+              run_migrations(self.path, backup=True)
+      def now() -> str:
+          return datetime.now(timezone.utc).isoformat()
+  
+>     def add_memory(
+          self,
+          content: str,
+          kind: str,
+          importance: int,
+          tags: list[str],
+          source: str,
+          confidence: float,
+          status: str,
+          user_id: int | None = None,
+      ) -> int:
+          now = self.now()
+>         norm = normalize_memory_text(content)
+          digest = content_hash(content)
+          active = 0 if status in {"forgotten", "expired"} else 1
+>         confirmed = now if status == "active" else None
+          with self.connect() as con:
+              cur = con.execute(
+>                 """INSERT INTO memories(
+                      content, kind, importance, tags_json, source, confidence, status,
+                      content_hash, content_normalized, supersedes_id, source_turn_id, source_file,
+>                     last_confirmed_at, created_at, updated_at, active, user_id
+                  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  (
+                      content,
+                      kind,
+                      importance,
+                      json.dumps(tags, ensure_ascii=False),
+                      source,
+                      confidence,
+                      supersedes_id,
+                      source_turn_id,
+                      source_file,
+>                     confirmed,
+                      now,
+                      now,
+                      active,
+                      user_id,
+                  ),
+              )
+              new_id = int(cur.lastrowid)
+              if supersedes_id:
+                  con.execute(
+>                     "UPDATE memories SET status='superseded', updated_at=? WHERE id=? AND status='active' AND (user_id IS ? OR ? IS NULL)",
+                      (now, supersedes_id, user_id, user_id),
+                  )
+              return new_id
+  
+>     def find_by_hash(self, digest: str, include_candidates: bool = True, user_id: int | None = None) -> dict | None:
+>         statuses = ("active", "candidate") if include_candidates else ("active",)
+          placeholders = ",".join("?" for _ in statuses)
+          user_clause = "AND user_id=?" if user_id is not None else ""
+          params: list[object] = [digest, *statuses]
+          if user_id is not None:
+              params.append(user_id)
+          with self.connect() as con:
+              row = con.execute(
+>                 f"""SELECT * FROM memories
+                      WHERE content_hash=? AND active=1 AND status IN ({placeholders}) {user_clause}
+                      ORDER BY id DESC LIMIT 1""",
+                  params,
+              ).fetchone()
+>         return self._memory_row(row) if row else None
+  
+      @staticmethod
+>     def _fts_query(query: str) -> str:
+          tokens = ["".join(ch for ch in t if ch.isalnum() or ch in "_-'") for t in query.split()]
+          tokens = [t for t in tokens if len(t) > 1][:12]
+          return " OR ".join(f'"{t}"*' for t in tokens)
+  
+  
+>     def search_memories(
+          self,
+          query: str,
+          limit: int = 8,
+>         include_candidates: bool = False,
+          user_id: int | None = None,
+      ) -> list[dict]:
+>         allowed = ("active", "candidate") if include_candidates else ("active",)
+          placeholders = ",".join("?" for _ in allowed)
+>         fts = self._fts_query(query)
+          user_sql = " AND m.user_id=?" if user_id is not None else ""
+          user_sql_plain = " AND user_id=?" if user_id is not None else ""
+          with self.connect() as con:
+>             if fts:
+                  try:
+>                     params: list[object] = [fts, *allowed]
+                      if user_id is not None:
+                          params.append(user_id)
+                      params.append(limit)
+                      rows = con.execute(
+>                         f"""SELECT m.*, bm25(memories_fts) AS lexical_rank
+>                         FROM memories_fts JOIN memories m ON m.id=memories_fts.rowid
+>                         WHERE memories_fts MATCH ? AND m.active=1 AND m.status IN ({placeholders}){user_sql}
+>                         ORDER BY (bm25(memories_fts) - m.importance * 0.35 - m.confidence * 0.8) ASC,
+                                   m.updated_at DESC LIMIT ?""",
+                          params,
+                      ).fetchall()
+                  except sqlite3.OperationalError:
+                      params = [*allowed]
+                      if user_id is not None:
+                          params.append(user_id)
+                      params.append(limit)
+                      rows = con.execute(
+>                         f"SELECT * FROM memories WHERE active=1 AND status IN ({placeholders}){user_sql_plain} "
+                          "ORDER BY importance DESC, confidence DESC, updated_at DESC LIMIT ?",
+                          params,
+                      ).fetchall()
+              else:
+                  params = [*allowed]
+                  if user_id is not None:
+                      params.append(user_id)
+                  params.append(limit)
+                  rows = con.execute(
+>                     f"SELECT * FROM memories WHERE active=1 AND status IN ({placeholders}){user_sql_plain} "
+                      "ORDER BY importance DESC, confidence DESC, updated_at DESC LIMIT ?",
+                      params,
+                  ).fetchall()
+              ids = [r["id"] for r in rows]
+              if ids:
+                  q = ",".join("?" for _ in ids)
+                  con.execute(
+>                     f"UPDATE memories SET access_count=access_count+1, last_accessed_at=? WHERE id IN ({q})",
+                      (self.now(), *ids),
+                  )
+>         return [self._memory_row(r) for r in rows]
+  
+>     def list_memories(
+          self,
+          limit: int = 100,
+          kind: str | None = None,
+          status: str | None = None,
+          statuses: list[str] | None = None,
+          user_id: int | None = None,
+      ) -> list[dict]:
+          where = ["active=1"]
+          params.append(limit)
+          with self.connect() as con:
+              rows = con.execute(
+>                 f"SELECT * FROM memories WHERE {' AND '.join(where)} "
+                  "ORDER BY importance DESC, updated_at DESC LIMIT ?",
+                  params,
+              ).fetchall()
+>         return [self._memory_row(r) for r in rows]
+  
+>     def update_memory(self, memory_id: int, updates: dict, user_id: int | None = None) -> dict | None:
+>         if user_id is not None and not self.get_memory(memory_id, user_id=user_id):
+              return None
+          allowed = {
+              "content",
+              "kind",
+              "importance",
+              "confidence",
+              "status",
+              "supersedes_id",
+                  params.append(value)
+          if "content" in updates and updates["content"] is not None:
+              fields.append("content_normalized=?")
+>             params.append(normalize_memory_text(updates["content"]))
+              fields.append("content_hash=?")
+              params.append(content_hash(updates["content"]))
+          if not fields:
+>             return self.get_memory(memory_id, user_id=user_id)
+          fields.append("updated_at=?")
+          params.append(self.now())
+          if updates.get("status") is not None:
+              status = updates["status"]
+              fields.append("active=?")
+              params.append(0 if status in {"forgotten", "expired"} else 1)
+              if status == "active":
+>                 fields.append("last_confirmed_at=?")
+                  params.append(self.now())
+>         params.append(memory_id)
+          with self.connect() as con:
+              if user_id is not None:
+                  con.execute(
+>                     f"UPDATE memories SET {','.join(fields)} WHERE id=? AND user_id=?",
+                      (*params, user_id),
+                  )
+              else:
+>                 con.execute(f"UPDATE memories SET {','.join(fields)} WHERE id=?", params)
+>         return self.get_memory(memory_id, user_id=user_id)
+  
+>     def get_memory(self, memory_id: int, user_id: int | None = None) -> dict | None:
+          with self.connect() as con:
+              if user_id is not None:
+                  row = con.execute(
+>                     "SELECT * FROM memories WHERE id=? AND user_id=?", (memory_id, user_id)
+                  ).fetchone()
+              else:
+>                 row = con.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+>         return self._memory_row(row) if row else None
+  
+>     def deactivate_memory(self, memory_id: int, user_id: int | None = None) -> bool:
+          with self.connect() as con:
+              if user_id is not None:
+                  cur = con.execute(
+>                     "UPDATE memories SET active=0, status='forgotten', updated_at=? WHERE id=? AND user_id=?",
+>                     (self.now(), memory_id, user_id),
+                  )
+              else:
+                  cur = con.execute(
+>                     "UPDATE memories SET active=0, status='forgotten', updated_at=? WHERE id=?",
+>                     (self.now(), memory_id),
+                  )
+              return cur.rowcount > 0
+  
+      def add_message(self, session_id: str, role: str, content: str, user_id: int | None = None) -> None:
+          with self.connect() as con:
+              con.execute(
+                  "INSERT INTO messages(session_id, role, content, created_at, user_id) VALUES (?,?,?,?,?)",
+                  (session_id, role, content, self.now(), user_id),
+                  ).fetchall()
+          return [dict(r) for r in reversed(rows)]
+  
+>     def add_decision(
+          self,
+          title: str,
+          rationale: str,
+          outcome: str | None,
+          status: str,
+          revisit_at: str | None,
+          user_id: int | None = None,
+      ) -> int:
+          now = self.now()
+          with self.connect() as con:
+              cur = con.execute(
+>                 """INSERT INTO decisions(title, rationale, outcome, status, revisit_at, created_at, updated_at, user_id)
+                     VALUES (?,?,?,?,?,?,?,?)""",
+                  (title, rationale, outcome, status, revisit_at, now, now, user_id),
+              )
+              return int(cur.lastrowid)
+  
+>     def list_decisions(self, limit: int = 100, status: str | None = None, user_id: int | None = None) -> list[dict]:
+          with self.connect() as con:
+              if user_id is not None and status:
+                  rows = con.execute(
+>                     "SELECT * FROM decisions WHERE status=? AND user_id=? ORDER BY created_at DESC LIMIT ?",
+                      (status, user_id, limit),
+                  ).fetchall()
+              elif user_id is not None:
+                  rows = con.execute(
+>                     "SELECT * FROM decisions WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+                      (user_id, limit),
+                  ).fetchall()
+              elif status:
+                  rows = con.execute(
+>                     "SELECT * FROM decisions WHERE status=? ORDER BY created_at DESC LIMIT ?",
+                      (status, limit),
+                  ).fetchall()
+              else:
+                  rows = con.execute(
+>                     "SELECT * FROM decisions ORDER BY created_at DESC LIMIT ?",
+                      (limit,),
+                  ).fetchall()
+          return [dict(r) for r in rows]
+  
+>     def get_decision(self, decision_id: int, user_id: int | None = None) -> dict | None:
+          with self.connect() as con:
+              if user_id is not None:
+                  row = con.execute(
+>                     "SELECT * FROM decisions WHERE id=? AND user_id=?",
+>                     (decision_id, user_id),
+                  ).fetchone()
+              else:
+                  row = con.execute(
+>                     "SELECT * FROM decisions WHERE id=?", (decision_id,)
+                  ).fetchone()
+          return dict(row) if row else None
+  
+>     def update_decision(
+>         self, decision_id: int, fields: dict, user_id: int | None = None
+      ) -> dict | None:
+          allowed = {"title", "rationale", "outcome", "status", "revisit_at"}
+          payload = {k: v for k, v in fields.items() if k in allowed and v is not None}
+          if not payload:
+>             return self.get_decision(decision_id, user_id=user_id)
+          payload["updated_at"] = self.now()
+          sets = ", ".join(f"{k}=?" for k in payload)
+          values = list(payload.values())
+          with self.connect() as con:
+              if user_id is not None:
+                  cur = con.execute(
+>                     f"UPDATE decisions SET {sets} WHERE id=? AND user_id=?",
+>                     (*values, decision_id, user_id),
+                  )
+              else:
+                  cur = con.execute(
+>                     f"UPDATE decisions SET {sets} WHERE id=?",
+>                     (*values, decision_id),
+                  )
+              if cur.rowcount == 0:
+                  return None
+>         return self.get_decision(decision_id, user_id=user_id)
+  
+      def link_telegram_user(self, user_id: int, telegram_chat_id: int) -> None:
+          with self.connect() as con:
+              con.execute(
+                  """INSERT INTO telegram_links(user_id, telegram_chat_id, created_at, updated_at)
+                     VALUES (?,?,?,?)
+                     ON CONFLICT(telegram_chat_id) DO UPDATE SET
+                       user_id=excluded.user_id,
+              ).fetchone()
+          return dict(row) if row else None
+  
+>     def audit(self, event_type: str, actor: str, details: dict) -> None:
+          safe = redact_obj(details)
+          with self.connect() as con:
+              con.execute(
+>                 "INSERT INTO audit(event_type, actor, details_json, created_at) VALUES (?,?,?,?)",
+                  (event_type, actor, json.dumps(safe, ensure_ascii=False), self.now()),
+              )
+  
+>     def list_audit(self, limit: int = 100) -> list[dict]:
+          with self.connect() as con:
+>             rows = con.execute("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+          result = []
+          for r in rows:
+              item = dict(r)
+              item["details"] = json.loads(item.pop("details_json"))
+              result.append(item)
+          return result
+  
+      def export_all(self) -> dict:
+          with self.connect() as con:
+              result = {}
+>             for table in ["users", "memories", "messages", "decisions", "audit", "schema_migrations"]:
+                  try:
+                      rows = con.execute(f"SELECT * FROM {table}").fetchall()
+                      result[table] = [dict(r) for r in rows]
+                  except sqlite3.Error:
+                      result[table] = []
+              return result
+  
+      def create_user(
+  
+      def assign_orphan_data_to_user(self, user_id: int) -> None:
+          with self.connect() as con:
+>             con.execute("UPDATE memories SET user_id=? WHERE user_id IS NULL", (user_id,))
+              con.execute("UPDATE messages SET user_id=? WHERE user_id IS NULL", (user_id,))
+>             con.execute("UPDATE decisions SET user_id=? WHERE user_id IS NULL", (user_id,))
+  
+  
+      def integrity_ok(self) -> bool:
+          with self.connect() as con:
+              row = con.execute("PRAGMA integrity_check").fetchone()
+              return bool(row and row[0] == "ok")
+  
+      @staticmethod
+>     def _memory_row(row: sqlite3.Row) -> dict:
+          item = dict(row)
+          tags_raw = item.pop("tags_json", "[]")
+          try:
+              item["tags"] = json.loads(tags_raw) if tags_raw is not None else []
+          except json.JSONDecodeError:
+              item["tags"] = []
+          item.pop("lexical_rank", None)
+          return item
+
+===== MEMORY API =====
+        yield "event: trace\ndata: " + result.trace.model_dump_json() + "\n\n"
+        yield "event: answer\ndata: " + json.dumps({"answer": result.answer}, ensure_ascii=False) + "\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
+# ---------- Memory (scoped) ----------
+@app.post("/memories")
+def add_memory(item: MemoryCreate, user: AuthUser = Depends(require_user)) -> dict:
+    return memory.remember(item, user_id=user.id)
+
+
+@app.get("/memories")
+def list_memories(
+    limit: int = 100,
+    kind: str | None = None,
+    status: str | None = None,
+    user: AuthUser = Depends(require_user),
+) -> list[dict]:
+    return db.list_memories(min(max(limit, 1), 500), kind, status, user_id=user.id)
+
+
+@app.get("/memories/search")
+def search_memories(q: str, limit: int = 20, user: AuthUser = Depends(require_user)) -> list[dict]:
+    return db.search_memories(q, min(max(limit, 1), 100), include_candidates=True, user_id=user.id)
+
+
+@app.patch("/memories/{memory_id}")
+def correct_memory(
+    memory_id: int, patch: MemoryPatch, user: AuthUser = Depends(require_user)
+) -> dict:
+    result = memory.correct(memory_id, patch, user_id=user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Memoria non trovata")
+    return result
+
+
+@app.post("/memories/confirm")
+def confirm_memories(body: MemoryConfirmBatch, user: AuthUser = Depends(require_user)) -> list[dict]:
+    confirmed: list[dict] = []
+    for memory_id in body.ids:
+        result = memory.correct(memory_id, MemoryPatch(status="active"), user_id=user.id)
+        if result:
+            confirmed.append(result)
+    return confirmed
+
+
+@app.delete("/memories/{memory_id}")
+def forget_memory(memory_id: int, user: AuthUser = Depends(require_user)) -> dict:
+    return {"success": memory.forget(memory_id, user_id=user.id)}
+
+
+@app.get("/open-loops")
+def open_loops(limit: int = 100, user: AuthUser = Depends(require_user)) -> list[dict]:
+    return db.list_memories(
+        min(max(limit, 1), 500),
+        kind="open_loop",
+        statuses=["active", "candidate"],
+        user_id=user.id,
+    )
+
+
+@app.post("/open-loops/{memory_id}/resolve")
+def resolve_open_loop(memory_id: int, user: AuthUser = Depends(require_user)) -> dict:
+    result = memory.correct(
+        memory_id, MemoryPatch(status="resolved"), user_id=user.id
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Open loop non trovato")
+    db.audit("open_loop_resolved", user.username, {"memory_id": memory_id})
+    return result
+
+
+@app.post("/decisions")
+def add_decision(item: DecisionCreate, user: AuthUser = Depends(require_user)) -> dict:
+    decision_id = db.add_decision(
+        item.title,
+        item.rationale,
+        item.outcome,
+        item.status,
+        item.revisit_at.isoformat() if item.revisit_at else None,
+        user_id=user.id,
+    )
+    db.audit("decision_created", user.username, {"decision_id": decision_id, "title": item.title})
+    return {"id": decision_id, **item.model_dump(mode="json")}
+
+
+@app.get("/decisions")
+def list_decisions(
+    limit: int = 100, status: str | None = None, user: AuthUser = Depends(require_user)
+) -> list[dict]:
+    return db.list_decisions(min(max(limit, 1), 500), status, user_id=user.id)
+
+
+@app.patch("/decisions/{decision_id}")
+def patch_decision(
+    decision_id: int, patch: DecisionPatch, user: AuthUser = Depends(require_user)
+) -> dict:
+    fields = patch.model_dump(exclude_none=True)
+    if "revisit_at" in fields and fields["revisit_at"] is not None:
+        fields["revisit_at"] = fields["revisit_at"].isoformat()
+    updated = db.update_decision(decision_id, fields, user_id=user.id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Decisione non trovata")
+    db.audit(
+        "decision_updated",
+        user.username,
+        {"decision_id": decision_id, "fields": list(fields.keys())},
+    )
+    return updated
+
+
+@app.get("/brief")
+def daily_brief(user: AuthUser = Depends(require_user)) -> dict:
+    return orchestrator.build_brief(user.id, is_operator=user.is_operator)
+
+
+@app.post("/memories/consolidate")
+def consolidate_memories(user: AuthUser = Depends(require_user)) -> dict:
+    if user.is_guest:
+        raise HTTPException(status_code=403, detail="Ospite non può consolidare memoria permanente")
+    return memory.consolidate(user_id=user.id)
+
+
+@app.get("/audit")
+def list_audit(limit: int = 100, user: AuthUser = Depends(require_operator)) -> list[dict]:
+    return db.list_audit(min(max(limit, 1), 500))
+
+
+@app.get("/export")
+def export_data(user: AuthUser = Depends(require_user)) -> dict:
+    # Users export only their slice; operator gets full redacted dump
+    if user.is_operator:
+        return redact_obj(db.export_all())
+
+===== MEMORY TESTS =====
+  tests\test_auth.py:3:from tauros.auth import AuthService
+  tests\test_auth.py:4:from tauros.database import Database
+> tests\test_auth.py:5:from tauros.memory import MemoryManager
+> tests\test_auth.py:6:from tauros.models import MemoryCreate
+  tests\test_auth.py:7:
+  tests\test_auth.py:8:
+> tests\test_auth.py:9:def test_register_login_and_memory_isolation(tmp_path: Path):
+  tests\test_auth.py:10:    db = Database(tmp_path / "auth.db")
+  tests\test_auth.py:11:    auth = AuthService(db, guest_max_messages=5)
+> tests\test_auth.py:12:    mm = MemoryManager(db)
+  tests\test_auth.py:13:
+  tests\test_auth.py:14:    a = auth.register("alice", "password123")
+  tests\test_auth.py:15:    b = auth.register("bob", "password456")
+  tests\test_auth.py:16:    assert a["token"] and b["token"]
+  tests\test_auth.py:17:    assert a["user"]["username"] == "alice"
+  tests\test_auth.py:18:
+> tests\test_auth.py:19:    mm.remember(MemoryCreate(content="Alice ama il caffè", kind="preference"), user_id=a["user"]["id"])
+> tests\test_auth.py:20:    mm.remember(MemoryCreate(content="Bob ama il tè", kind="preference"), user_id=b["user"]["id"])
+  tests\test_auth.py:21:
+> tests\test_auth.py:22:    alice_mem = mm.recall("caffè", user_id=a["user"]["id"])
+> tests\test_auth.py:23:    bob_mem = mm.recall("caffè", user_id=b["user"]["id"])
+  tests\test_auth.py:24:    assert alice_mem and "caffè" in alice_mem[0]["content"].casefold()
+  tests\test_auth.py:25:    assert bob_mem == []
+  tests\test_auth.py:26:
+  tests\test_auth.py:27:    login = auth.login("alice", "password123")
+  tests\test_core.py:2:
+  tests\test_core.py:3:from tauros.database import Database
+> tests\test_core.py:4:from tauros.memory import MemoryManager
+> tests\test_core.py:5:from tauros.models import MemoryCreate, MemoryPatch
+  tests\test_core.py:6:from tauros.planner import Planner
+  tests\test_core.py:7:from tauros.policy import PolicyEngine
+  tests\test_core.py:8:from tauros.settings import Settings
+  tests\test_core.py:9:from tauros.tools import ToolRegistry
+  tests\test_core.py:24:
+  tests\test_core.py:25:
+> tests\test_core.py:26:def test_memory_fts_roundtrip(tmp_path: Path):
+  tests\test_core.py:27:    db = Database(tmp_path / "test.db")
+> tests\test_core.py:28:    manager = MemoryManager(db)
+> tests\test_core.py:29:    saved = manager.remember(MemoryCreate(content="Tauros usa Ollama localmente", kind="project", importance=8))
+> tests\test_core.py:30:    found = manager.recall("Ollama locale")
+  tests\test_core.py:31:    assert saved["id"] > 0
+  tests\test_core.py:32:    assert found[0]["content"] == "Tauros usa Ollama localmente"
+  tests\test_core.py:33:
+  tests\test_core.py:34:
+> tests\test_core.py:35:def test_memory_candidate_and_correction(tmp_path: Path):
+  tests\test_core.py:36:    db = Database(tmp_path / "test.db")
+> tests\test_core.py:37:    manager = MemoryManager(db)
+> tests\test_core.py:38:    candidates = manager.soft_save_candidates("Ricorda che preferisco risposte lineari")
+> tests\test_core.py:39:    assert candidates and candidates[0]["status"] == "candidate"
+> tests\test_core.py:40:    corrected = manager.correct(candidates[0]["id"], MemoryPatch(status="active", importance=9))
+  tests\test_core.py:41:    assert corrected["status"] == "active"
+  tests\test_core.py:42:    assert corrected["importance"] == 9
+  tests\test_core.py:43:
+  tests\test_core.py:44:
+> tests\test_core.py:45:def test_open_loop_extraction(tmp_path: Path):
+  tests\test_core.py:46:    db = Database(tmp_path / "test.db")
+> tests\test_core.py:47:    manager = MemoryManager(db)
+> tests\test_core.py:48:    saved = manager.soft_save_candidates("Dobbiamo collegare Telegram al progetto")
+> tests\test_core.py:49:    assert saved[0]["kind"] == "open_loop"
+  tests\test_core.py:50:
+  tests\test_core.py:51:
+  tests\test_core.py:52:def test_planner_system_info():
+  tests\test_core.py:53:    plan = Planner().create("Dammi informazioni sul sistema")
+  tests\test_core.py:69:
+  tests\test_core.py:70:
+> tests\test_core.py:71:def test_candidates_excluded_from_hard_recall(tmp_path: Path):
+  tests\test_core.py:72:    db = Database(tmp_path / "test.db")
+> tests\test_core.py:73:    manager = MemoryManager(db)
+> tests\test_core.py:74:    saved = manager.soft_save_candidates("Ricorda che preferisco risposte lineari")
+> tests\test_core.py:75:    assert saved and saved[0]["status"] == "candidate"
+> tests\test_core.py:76:    hard = manager.recall("preferisco risposte lineari")
+  tests\test_core.py:77:    assert hard == []
+> tests\test_core.py:78:    manager.correct(saved[0]["id"], MemoryPatch(status="active"))
+> tests\test_core.py:79:    hard_after = manager.recall("preferisco risposte lineari")
+  tests\test_core.py:80:    assert hard_after and hard_after[0]["status"] == "active"
+  tests\test_core.py:81:
+  tests\test_core.py:82:
+  tests\test_core.py:83:def test_patch_does_not_revive_forgotten(tmp_path: Path):
+  tests\test_core.py:84:    db = Database(tmp_path / "test.db")
+> tests\test_core.py:85:    manager = MemoryManager(db)
+> tests\test_core.py:86:    item = manager.remember(MemoryCreate(content="Segreto temporaneo", kind="temporary", importance=3))
+> tests\test_core.py:87:    manager.forget(item["id"])
+> tests\test_core.py:88:    patched = manager.correct(item["id"], MemoryPatch(importance=4))
+  tests\test_core.py:89:    assert patched is not None
+  tests\test_core.py:90:    assert patched["status"] == "forgotten"
+  tests\test_core.py:91:    assert patched["active"] == 0
+> tests\test_core.py:92:    assert manager.recall("Segreto temporaneo") == []
+  tests\test_security.py:5:
+  tests\test_security.py:6:from tauros.database import Database
+> tests\test_security.py:7:from tauros.memory import MemoryManager
+  tests\test_security.py:8:from tauros.migrations import current_schema_version, run_migrations
+> tests\test_security.py:9:from tauros.models import MemoryCreate
+  tests\test_security.py:10:from tauros.policy import PolicyEngine
+  tests\test_security.py:11:from tauros.security import (
+  tests\test_security.py:12:    PathGuard,
+  tests\test_security.py:13:    assert_strong_token,
+  tests\test_security.py:155:    versions = current_schema_version(db_path)
+  tests\test_security.py:156:    assert "001_initial" in versions
+> tests\test_security.py:157:    assert "002_live_memory" in versions
+  tests\test_security.py:158:    assert "003_hardening" in versions
+  tests\test_security.py:159:    # second run is no-op
+  tests\test_security.py:160:    result2 = run_migrations(db_path, backup=True)
+  tests\test_security.py:161:    assert result2.applied == []
+  tests\test_security.py:162:
+  tests\test_security.py:163:
+> tests\test_security.py:164:def test_candidate_not_truth_and_hash_dedup(tmp_path: Path):
+  tests\test_security.py:165:    db = Database(tmp_path / "m.db")
+> tests\test_security.py:166:    mm = MemoryManager(db)
+> tests\test_security.py:167:    a = mm.soft_save_candidates("Ricorda che uso un Pixel")
+> tests\test_security.py:168:    b = mm.soft_save_candidates("Ricorda che uso un Pixel")
+  tests\test_security.py:169:    assert a and not b  # dedup
+> tests\test_security.py:170:    assert mm.recall("Pixel") == []
+  tests\test_security.py:171:
+  tests\test_security.py:172:
+  tests\test_security.py:173:def test_read_outside_allowlist_via_tool(tmp_path: Path):
+  tests\test_security.py:174:    ws = tmp_path / "workspace"
+  tests\test_v04_features.py:4:
+  tests\test_v04_features.py:5:from tauros.database import Database
+> tests\test_v04_features.py:6:from tauros.memory import MemoryManager
+> tests\test_v04_features.py:7:from tauros.models import DecisionCreate, MemoryCreate, MemoryPatch
+  tests\test_v04_features.py:8:from tauros.orchestrator import Orchestrator
+  tests\test_v04_features.py:9:from tauros.plan_models import PlanStep, StructuredPlan
+  tests\test_v04_features.py:10:from tauros.planner import Planner
+  tests\test_v04_features.py:11:from tauros.policy import PolicyEngine
+  tests\test_v04_features.py:123:    (tmp_path / "ws").mkdir(exist_ok=True)
+  tests\test_v04_features.py:124:    db = Database(settings.database_path)
+> tests\test_v04_features.py:125:    mem = MemoryManager(db)
+  tests\test_v04_features.py:126:    mem.remember(
+> tests\test_v04_features.py:127:        MemoryCreate(content="devo finire il brief", kind="open_loop", status="active"),
+  tests\test_v04_features.py:128:        user_id=1,
+  tests\test_v04_features.py:129:    )
+  tests\test_v04_features.py:130:    did = db.add_decision("Scegli provider", "Groq e veloce", None, "open", None, user_id=1)
+  tests\test_v04_features.py:131:    updated = db.update_decision(did, {"status": "accepted"}, user_id=1)
+  tests\test_v04_features.py:133:
+  tests\test_v04_features.py:134:    policy = PolicyEngine(settings)
+> tests\test_v04_features.py:135:    tools = ToolRegistry(policy, settings, policy.path_guard, memory=mem)
+  tests\test_v04_features.py:136:    provider = FakeProvider("ciao")
+  tests\test_v04_features.py:137:    planner = Planner(provider=provider)
+  tests\test_v04_features.py:138:    orch = Orchestrator(settings, db, provider, mem, planner, tools, policy=policy)
+  tests\test_v04_features.py:139:    brief = orch.build_brief(1, is_operator=False)
+> tests\test_v04_features.py:140:    assert brief["counts"]["open_loops"] >= 1
+  tests\test_v04_features.py:141:    assert "narrative" in brief
+  tests\test_v04_features.py:142:
+  tests\test_v04_features.py:143:
+  tests\test_v04_features.py:144:def test_handwritten_plan_with_new_tools(tmp_path: Path):
+  tests\test_v04_features.py:177:
+  tests\test_v04_features.py:178:
+> tests\test_v04_features.py:179:def test_memory_consolidate_skips_low_confidence(tmp_path: Path):
+  tests\test_v04_features.py:180:    db = Database(tmp_path / "c.db")
+> tests\test_v04_features.py:181:    mem = MemoryManager(db)
+  tests\test_v04_features.py:182:    c = mem.remember(
+> tests\test_v04_features.py:183:        MemoryCreate(
+  tests\test_v04_features.py:184:            content="fatto auto",
+  tests\test_v04_features.py:185:            kind="fact",
+> tests\test_v04_features.py:186:            status="candidate",
+  tests\test_v04_features.py:187:            confidence=0.5,
+  tests\test_v04_features.py:188:            source="conversation",
+  tests\test_v04_features.py:189:        ),
+  tests\test_v04_features.py:190:        user_id=1,
+  tests\test_vertex_provider.py:73:
+  tests\test_vertex_provider.py:74:def test_extract_vertex_text():
+> tests\test_vertex_provider.py:75:    data = {"candidates": [{"content": {"parts": [{"text": "ok "}, {"text": "gemini"}]}}]}
+  tests\test_vertex_provider.py:76:    assert extract_vertex_text(data) == "ok gemini"
+  tests\test_vertex_provider.py:77:    with pytest.raises(ProviderError):
+> tests\test_vertex_provider.py:78:        extract_vertex_text({"candidates": []})
+  tests\test_vertex_provider.py:79:
+  tests\test_vertex_provider.py:80:
+  tests\test_vertex_provider.py:81:def test_vertex_chat_uses_adc_token_and_parses_response(monkeypatch):
+  tests\test_vertex_provider.py:82:    settings = _settings()
+  tests\test_vertex_provider.py:89:
+  tests\test_vertex_provider.py:90:        def json(self):
+> tests\test_vertex_provider.py:91:            return {"candidates": [{"content": {"parts": [{"text": "ciao da vertex"}]}}]}
+  tests\test_vertex_provider.py:92:
+  tests\test_vertex_provider.py:93:    class FakeClient:
+  tests\test_vertex_provider.py:94:        def __init__(self, *args, **kwargs):
+  tests\test_vertex_provider.py:95:            pass
+

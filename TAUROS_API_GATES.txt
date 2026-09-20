@@ -1,0 +1,290 @@
+===== API WRITE ENDPOINTS =====
+    )
+    return {
+        "ok": True,
+        "elevation": session.to_public(),
+        "status": privileges.status(user.role, user.id),
+        "message": (
+            "Modalità elevata attiva. Alla scadenza torna il livello base. "
+            "Più potere → più responsabilità."
+        ),
+    }
+
+
+@app.post("/privileges/revoke")
+def privilege_revoke(user: AuthUser = Depends(require_user)) -> dict:
+    ok = privileges.revoke(user.id)
+    db.audit("privilege_revoked", user.username, {"user_id": user.id, "had_session": ok})
+    return {"ok": True, "revoked": ok, "status": privileges.status(user.role, user.id)}
+
+
+# ---------- Supervised writes ----------
+@app.get("/writes/proposals")
+def list_write_proposals(
+    status: str | None = None,
+    user: AuthUser = Depends(require_user),
+) -> list[dict]:
+    uid = None if user.is_operator else user.id
+    return writes.list_proposals(user_id=uid, status=status)
+
+
+@app.get("/writes/proposals/{proposal_id}")
+def get_write_proposal(proposal_id: str, user: AuthUser = Depends(require_user)) -> dict:
+    prop = writes.get(proposal_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail="Proposta non trovata")
+    if not user.is_operator and prop.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Proposta di un altro utente")
+    return prop.to_public(include_full=True)
+
+
+@app.post("/writes/propose")
+def propose_write_api(body: WriteProposeRequest, user: AuthUser = Depends(require_user)) -> dict:
+    try:
+        return writes.propose(
+            user_id=user.id,
+            actor=user.username,
+            path=body.path,
+            content=body.content,
+            kind=body.kind,
+            old_text=body.old_text,
+            new_text=body.new_text,
+            purpose=body.purpose,
+            role=user.role,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/writes/proposals/{proposal_id}/approve")
+def approve_write(
+    proposal_id: str, body: WriteApproveRequest, user: AuthUser = Depends(require_user)
+) -> dict:
+    try:
+        return writes.approve(
+            proposal_id,
+            actor=user.username,
+            user_id=user.id,
+            role=user.role if not user.is_operator else "operator",
+            confirm=body.confirm,
+            strong_confirmation=body.strong_confirmation,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/writes/proposals/{proposal_id}/reject")
+def reject_write(proposal_id: str, user: AuthUser = Depends(require_user)) -> dict:
+    try:
+        return writes.reject(proposal_id, actor=user.username, user_id=user.id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/writes/restore")
+def restore_write(body: WriteRestoreRequest, user: AuthUser = Depends(require_user)) -> dict:
+    try:
+        return writes.restore_backup(
+            path=body.path,
+            backup_path=body.backup_path,
+            user_id=user.id,
+            actor=user.username,
+            role=user.role if not user.is_operator else "operator",
+            strong_confirmation=body.strong_confirmation,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/auth/logout")
+def auth_logout(authorization: str | None = Header(default=None)) -> dict:
+    try:
+        u = auth_service.resolve_bearer(authorization, settings.api_token)
+        if u:
+            privileges.revoke(u.id)
+    except Exception:  # noqa: BLE001
+        pass
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        if token != settings.api_token:
+            auth_service.logout(token)
+    return {"ok": True}
+
+
+# ---------- Chat ----------
+
+===== API AUTH / INITIALIZATION =====
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import secrets
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import __version__
+from .auth import AuthService, AuthUser, is_loopback_host
+from .database import Database
+from .memory import MemoryManager
+from .models import (
+    AuthLogin,
+    AuthRegister,
+    ChatRequest,
+    ChatResponse,
+    DecisionCreate,
+    DecisionPatch,
+    ElevateRequest,
+    MemoryConfirmBatch,
+    MemoryCreate,
+    MemoryPatch,
+    WriteApproveRequest,
+    WriteProposeRequest,
+    WriteRestoreRequest,
+)
+from .orchestrator import Orchestrator
+from .planner import Planner
+from .policy import PolicyEngine
+from .providers import build_provider
+from .privileges import PrivilegeLevel, PrivilegeService
+from .security import (
+    assert_strong_token,
+    install_log_redaction,
+    redact_obj,
+)
+from .brain import BrainRuntime, load_brain_override
+from .rules import AGENT_CATALOG, RuleStore
+from .settings import settings
+
+load_brain_override(settings)
+from .tools import ToolRegistry
+from .writes import WriteService
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+install_log_redaction()
+logger = logging.getLogger("tauros.api")
+
+if not settings.skip_token_check:
+    try:
+        assert_strong_token(settings.api_token)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Configurazione token non valida: %s", exc)
+        _token_error = str(exc)
+    else:
+        _token_error = None
+else:
+    _token_error = None
+
+db = Database(settings.database_path)
+memory = MemoryManager(db)
+privileges = PrivilegeService.from_settings(settings)
+policy = PolicyEngine(settings, privileges=privileges)
+path_guard = policy.path_guard
+writes = WriteService(
+    settings,
+    path_guard,
+    privileges,
+    audit=lambda event, actor, details: db.audit(event, actor, details),
+)
+tools = ToolRegistry(policy, settings, path_guard, memory=memory, writes=writes)
+provider = build_provider(settings)
+planner = Planner(
+    provider=provider,
+    max_steps=settings.max_plan_steps,
+    allowed_tools={
+        "system_info",
+        "disk_usage",
+        "list_directory",
+        "read_text_file",
+        "memory_search",
+        "workspace_search",
+        "git_status",
+        "git_log",
+        "git_diff",
+        "project_summary",
+        "propose_write",
+        "propose_patch",
+        "file_snapshot",
+    },
+)
+orchestrator = Orchestrator(settings, db, provider, memory, planner, tools, policy=policy)
+brain = BrainRuntime(settings, orchestrator, planner)
+auth_service = AuthService(db, guest_max_messages=settings.guest_max_messages)
+# Ensure owner exists for operator token mapping
+try:
+    auth_service.ensure_owner(settings.owner)
+except Exception as exc:  # noqa: BLE001
+    logger.warning("Owner bootstrap: %s", exc)
+
+app = FastAPI(title="TAUROS Cognitive OS", version=__version__)
+
+_cors = settings.cors_origin_list()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+if WEB_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
+
+
+def _file(name: str, media_type: str | None = None) -> FileResponse:
+    path = WEB_DIR / name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"{name} non trovato")
+    headers = {
+        "Cache-Control": "no-cache" if name in {"sw.js", "index.html", "app.html"} else "public, max-age=3600",
+    }
+    if name == "sw.js":
+
+===== ORCHESTRATOR run_plan =====
+            },
+        )
+        return ChatResponse(
+            answer=answer,
+            session_id=request.session_id,
+            provider=self.settings.provider,
+            model=self.settings.model,
+            memories_used=memories,
+            tool_results=tool_results,
+            trace=trace,
+        )
+
+    def run_plan(self, plan: StructuredPlan | dict[str, Any] | str):
+        """Execute a hand-written or generated plan without LLM (tests / operator)."""
+        return self.plan_executor.run(plan)
+
+    def build_brief(self, user_id: int | None, *, is_operator: bool = False) -> dict[str, Any]:
+        """Continuity brief: open loops, decisions, candidates, recent activity."""
+        uid = None if is_operator else user_id
+        if is_operator:
+            loops = self.db.list_memories(
+                20, kind="open_loop", statuses=["active", "candidate"]
+            )
+            candidates = self.db.list_memories(15, status="candidate")
+            decisions_open = self.db.list_decisions(15, status="open")
+            decisions_revisit = self.db.list_decisions(10, status="revisit")
+            active = self.db.list_memories(10, status="active")
+            audit = self.db.list_audit(8)
+        else:
+            loops = self.db.list_memories(
