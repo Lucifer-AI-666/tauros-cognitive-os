@@ -1,4 +1,4 @@
-# TAUROS Cognitive OS v0.4.1
+# TAUROS Cognitive OS v0.4.5
 
 **Sistema Operativo Cognitivo Personale — local-first, hardened, multi-canale.**
 
@@ -23,6 +23,8 @@ Il modello linguistico è intercambiabile. Identità, memoria, strumenti, regole
 | **Docker / Caddy** | Deploy locale e produzione HTTPS |
 | **Licenze** | `LICENSE` (MIT), `NOTICE`, `licenses/THIRD_PARTY.md` |
 
+Release: [v0.4.5](https://github.com/Lucifer-AI-666/tauros-cognitive-os/releases/tag/v0.4.5) · CI: [tests](https://github.com/Lucifer-AI-666/tauros-cognitive-os/actions/workflows/tests.yml)
+
 Vedi anche: [VISION.md](VISION.md) · [CHANGELOG.md](CHANGELOG.md) · [CONSEGNA.md](CONSEGNA.md)
 
 ---
@@ -39,7 +41,17 @@ Vedi anche: [VISION.md](VISION.md) · [CHANGELOG.md](CHANGELOG.md) · [CONSEGNA.
 ## Avvio rapido (Windows)
 
 ```powershell
-cd TAUROS_Cognitive_OS_v0.4.1
+# gia installato su questo PC:
+C:\Users\anouar\DIB_TAUROS_LAUNCH.bat
+# PWA  http://127.0.0.1:8000/
+# Console  http://127.0.0.1:8000/console
+# Nexus (se presente)  :3000 / :8081
+```
+
+Prima installazione:
+
+```powershell
+cd tauros-cognitive-os
 .\install.ps1
 .\.venv\Scripts\Activate.ps1
 tauros init --owner "IlTuoNome" --allowlist "C:\Users\TUO\TaurosWorkspace"
