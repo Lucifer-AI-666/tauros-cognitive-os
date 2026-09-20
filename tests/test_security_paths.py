@@ -87,6 +87,7 @@ def test_parse_path_list_no_comma_mangling(tmp_path: Path):
     paths = parse_path_list(f'["{a.as_posix()}", "{b.as_posix()}"]')
     assert len(paths) == 2
     assert len(parse_path_list(f"{a}\n{b}")) == 2
+    assert len(parse_path_list(f"{a};{b}")) == 2
 
 
 def test_simulated_planner_denied_outside_file_is_auditable(tmp_path: Path):

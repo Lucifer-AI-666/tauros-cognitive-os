@@ -185,6 +185,7 @@ def parse_path_list(raw: str | Iterable[str] | None) -> list[Path]:
     - JSON array
     - newline-separated paths
     - OS path separator (Windows ``;``, POSIX ``:``)
+    - ``;`` fallback on POSIX for cross-platform env values
     """
     if raw is None:
         return []
@@ -207,6 +208,10 @@ def parse_path_list(raw: str | Iterable[str] | None) -> list[Path]:
         parts = [ln.strip() for ln in text.splitlines() if ln.strip()]
     else:
         parts = [p.strip() for p in text.split(os.pathsep) if p.strip()]
+        if os.pathsep != ";" and len(parts) <= 1 and ";" in text:
+            alt_parts = [p.strip() for p in text.split(";") if p.strip()]
+            if len(alt_parts) > 1:
+                parts = alt_parts
 
     return [Path(p).expanduser() for p in parts]
 
