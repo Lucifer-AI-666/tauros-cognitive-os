@@ -1,0 +1,11 @@
+---
+# Analisi statica su GitHub → Codacy (collega il repo privato da app.codacy.com).
+engines:
+  pylint:
+    enabled: true
+  bandit:
+    enabled: true
+exclude_paths:
+  - tests/**
+  - web/**
+  - scripts/**

@@ -25,6 +25,8 @@ Il modello linguistico è intercambiabile. Identità, memoria, strumenti, regole
 
 Release: [v0.4.5](https://github.com/Lucifer-AI-666/tauros-cognitive-os/releases/tag/v0.4.5) · CI: [tests](https://github.com/Lucifer-AI-666/tauros-cognitive-os/actions/workflows/tests.yml)
 
+Codacy: file `.codacy.yml` pronto. Collega il repo privato da [app.codacy.com](https://app.codacy.com) (GitHub → Lucifer-AI-666/tauros-cognitive-os). Senza quel passo non parte.
+
 Vedi anche: [VISION.md](VISION.md) · [CHANGELOG.md](CHANGELOG.md) · [CONSEGNA.md](CONSEGNA.md)
 
 ---
