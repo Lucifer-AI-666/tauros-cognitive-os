@@ -1,5 +1,6 @@
 """v0.4.1 supervised writes + elevation gates."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -155,7 +156,7 @@ def test_outside_trust_zone_needs_strong_phrase(tmp_path: Path):
         api_token=generate_api_token(),
         skip_token_check=True,
         host="127.0.0.1",
-        workspace_allowlist=f"{ws};{outside}",
+        workspace_allowlist=os.pathsep.join([str(ws), str(outside)]),
         trust_zones=str(ws),
         security_mode="read_only",
         database_path=tmp_path / "w.db",
