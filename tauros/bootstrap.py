@@ -207,4 +207,15 @@ def doctor_checks(settings) -> list[dict]:
     else:
         add("provider", True, provider or "unset")
 
+    tg_on = bool(settings.telegram_enabled)
+    tg_tok = (settings.telegram_bot_token or "").strip()
+    if not tg_on:
+        add("telegram", True, "disabilitato (opzionale)")
+    else:
+        add(
+            "telegram",
+            bool(tg_tok),
+            "token presente" if tg_tok else "TAUROS_TELEGRAM_ENABLED ma token vuoto",
+        )
+
     return checks

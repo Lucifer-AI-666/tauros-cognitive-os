@@ -145,4 +145,18 @@ if ($cosmos) {
     Write-Host "COSMOS: cartella assente - skip."
 }
 
+$tgOn = $false
+$tgTok = $false
+if (Test-Path $envFile) {
+    $enLine = Get-Content $envFile | Where-Object { $_ -match '^TAUROS_TELEGRAM_ENABLED=' } | Select-Object -First 1
+    if ($enLine -match '=true$|=1$|=yes$') { $tgOn = $true }
+    $tgLine = Get-Content $envFile | Where-Object { $_ -match '^TAUROS_TELEGRAM_BOT_TOKEN=' } | Select-Object -First 1
+    if ($tgLine -and $tgLine.Length -gt 'TAUROS_TELEGRAM_BOT_TOKEN='.Length + 8) { $tgTok = $true }
+}
+if ($tgOn -and $tgTok) {
+    Write-Host "Telegram: token presente. Avvio: .\.venv\Scripts\python.exe -m tauros.cli telegram"
+} else {
+    Write-Host "Telegram: spento (TAUROS_TELEGRAM_ENABLED=false o token vuoto)."
+}
+
 Write-Host "Fatto. Core resta in esecuzione."
