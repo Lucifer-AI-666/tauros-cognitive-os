@@ -112,7 +112,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -874,3 +874,4 @@ def dashboard_stats(user: AuthUser = Depends(require_user)) -> dict:
         "candidates_preview": candidates[:8],
         "integrity_ok": db.integrity_ok(),
     }
+

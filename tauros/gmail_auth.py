@@ -57,7 +57,7 @@ class GmailAuthConfig:
     google_client_id: str = ""
     gmail_user: str = ""  # mittente SMTP (il tuo Gmail)
     gmail_app_password: str = ""  # password app Google
-    otp_debug: bool = True  # su localhost mostra/ritorna il codice
+    otp_debug: bool = False  # su localhost mostra/ritorna il codice
     allowed_domains: str = "gmail.com,googlemail.com"  # vuoto = tutti
 
 
@@ -236,3 +236,4 @@ class GmailAuthService:
         pub = AuthService._public_user(user)
         pub["email"] = email
         return {"token": token, "user": pub, "email": email}
+
