@@ -82,11 +82,6 @@ class GmailAuthService:
 
         code = "".join(secrets.choice("0123456789") for _ in range(OTP_LEN))
         code_hash = hashlib.sha256(code.encode()).hexdigest()
-        _otp_store[email] = {
-            "hash": code_hash,
-            "exp": time.time() + OTP_TTL_SEC,
-            "attempts": 0,
-        }
 
         sent = False
         send_error = None
@@ -99,6 +94,15 @@ class GmailAuthService:
                 logger.warning("SMTP Gmail fallito: %s", exc)
         else:
             send_error = "SMTP non configurato (TAUROS_GMAIL_USER / TAUROS_GMAIL_APP_PASSWORD)"
+
+        if not sent and not self.cfg.otp_debug:
+            raise ValueError("Codice non inviato: configura Gmail SMTP o abilita TAUROS_OTP_DEBUG")
+
+        _otp_store[email] = {
+            "hash": code_hash,
+            "exp": time.time() + OTP_TTL_SEC,
+            "attempts": 0,
+        }
 
         out: dict[str, Any] = {
             "ok": True,
@@ -236,4 +240,3 @@ class GmailAuthService:
         pub = AuthService._public_user(user)
         pub["email"] = email
         return {"token": token, "user": pub, "email": email}
-
