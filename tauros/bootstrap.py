@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .security import generate_api_token, protect_env_file
+from dotenv import dotenv_values, set_key
+
+from .security import generate_api_token, is_weak_token, protect_env_file
 
 
 DEFAULT_ENV = """TAUROS_NAME=TAUROS
@@ -61,38 +63,17 @@ def init_environment(
         )
         created = True
     else:
-        text = env_path.read_text(encoding="utf-8")
-        if force_token or "change-me-now" in text or "TAUROS_API_TOKEN=" not in text:
-            lines = []
-            replaced = False
-            for line in text.splitlines():
-                if line.startswith("TAUROS_API_TOKEN="):
-                    lines.append(f"TAUROS_API_TOKEN={token}")
-                    replaced = True
-                else:
-                    lines.append(line)
-            if not replaced:
-                lines.append(f"TAUROS_API_TOKEN={token}")
-            # ensure security keys exist
-            blob = "\n".join(lines)
-            extras = []
-            for key, value in {
-                "TAUROS_ALLOW_LAN_BIND": "false",
-                "TAUROS_SECURITY_MODE": "read_only",
-                "TAUROS_WORKSPACE_ALLOWLIST": allowlist or "",
-                "TAUROS_BACKUP_DIR": "./data/backups",
-            }.items():
-                if key not in blob:
-                    extras.append(f"{key}={value}")
-            if extras:
-                lines.extend(extras)
-            env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        else:
-            # parse existing token for return
-            for line in text.splitlines():
-                if line.startswith("TAUROS_API_TOKEN="):
-                    token = line.split("=", 1)[1].strip()
-                    break
+        existing = dotenv_values(env_path)
+        token = existing.get("TAUROS_API_TOKEN") or ""
+        if force_token or is_weak_token(token):
+            token = generate_api_token()
+            set_key(env_path, "TAUROS_API_TOKEN", token)
+        # Installers copy the template first: populate its empty allowlist.
+        # Preserve existing nonempty permissions and unrelated settings.
+        if allowlist and not existing.get("TAUROS_WORKSPACE_ALLOWLIST"):
+            set_key(env_path, "TAUROS_WORKSPACE_ALLOWLIST", allowlist)
+        if owner != "Owner" and existing.get("TAUROS_OWNER") in {None, "", "Owner"}:
+            set_key(env_path, "TAUROS_OWNER", owner)
 
     protect_env_file(env_path)
     return {
@@ -219,3 +200,4 @@ def doctor_checks(settings) -> list[dict]:
         )
 
     return checks
+

@@ -71,9 +71,9 @@ class Settings(BaseSettings):
     google_client_id: str = ""  # OAuth Web Client ID (Google Cloud Console)
     gmail_user: str = ""  # es. tuo@gmail.com (SMTP mittente)
     gmail_app_password: str = ""  # password app Google (16 caratteri)
-    otp_debug: bool = True  # su locale mostra il codice OTP nella risposta API
+    otp_debug: bool = False  # su locale mostra il codice OTP nella risposta API
     # Un click da 127.0.0.1 entra come owner, senza token/password
-    local_click_login: bool = True
+    local_click_login: bool = False
     gmail_allowed_domains: str = "gmail.com,googlemail.com"
 
     @field_validator("host")
@@ -130,3 +130,4 @@ def load_settings(**overrides) -> Settings:
 
 
 settings = Settings()
+

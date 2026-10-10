@@ -1,289 +1,219 @@
-# TAUROS Cognitive OS v0.4.5
+# TAUROS Cognitive OS
 
-**Sistema Operativo Cognitivo Personale — local-first, hardened, multi-canale.**
+**Un ambiente personale per lavorare con l’AI, mantenendo memoria, strumenti e controllo delle operazioni.**
 
-Il modello linguistico è intercambiabile. Identità, memoria, strumenti, regole e audit appartengono a **TAUROS**.
+TAUROS collega una chat a modelli linguistici intercambiabili, memoria persistente e strumenti locali. Il suo obiettivo è dare continuità al lavoro: recuperare informazioni dai progetti autorizzati, organizzare decisioni e attività aperte, proporre interventi sui file e sottoporli a controlli prima dell’esecuzione.
 
-> TAUROS diventa più potente soltanto quando diventa anche più controllabile.  
 > Il modello propone. La policy decide. L’esecutore agisce. L’audit registra.
 
----
+Il nome “Cognitive OS” descrive l’architettura applicativa: TAUROS è un’applicazione Python con API e interfaccia web, non un sistema operativo da installare al posto di Windows, Linux o Android.
 
-## Contenuto del pacchetto
+## Stato del progetto
 
-| Elemento | Descrizione |
-|----------|-------------|
-| **App PWA** | Chat, login, ospite, installabile (`web/app.html` + manifest + SW) |
-| **Console** | Overview, memoria, open loops, decisioni, brief, scritture, privilegi, audit |
-| **API** | FastAPI su `127.0.0.1:8000` di default |
-| **Planner** | Regole + LLM → JSON validato → policy per step |
-| **Scritture 0.4.1** | Bozza → anteprima → conferma → backup → write → verify / rollback |
-| **Telegram** | `tauros telegram` (opzionale) |
-| **Voce** | STT/TTS nel browser (Web Speech) |
-| **Docker / Caddy** | Deploy locale e produzione HTTPS |
-| **Licenze** | `LICENSE` (MIT), `NOTICE`, `licenses/THIRD_PARTY.md` |
+La versione dichiarata nel pacchetto è **0.4.5**. Il repository contiene backend FastAPI, PWA, console operativa, CLI, integrazione Telegram e un Problem Agent opzionale. È un progetto in sviluppo: la presenza di un modulo o di un test non costituisce una certificazione di sicurezza o di idoneità alla produzione.
 
-Release: [v0.4.5](https://github.com/Lucifer-AI-666/tauros-cognitive-os/releases/tag/v0.4.5) · CI: [tests](https://github.com/Lucifer-AI-666/tauros-cognitive-os/actions/workflows/tests.yml)
+- [Verifiche e limiti di questa revisione](docs/VERIFICATION.md)
+- [Visione](VISION.md) · [Cronologia](CHANGELOG.md) · [Licenza MIT](LICENSE)
+- [Workflow dei test](https://github.com/Lucifer-AI-666/tauros-cognitive-os/actions/workflows/tests.yml)
 
-Codacy: file `.codacy.yml` pronto. Collega il repo privato da [app.codacy.com](https://app.codacy.com) (GitHub → Lucifer-AI-666/tauros-cognitive-os). Senza quel passo non parte.
+## Cosa puoi fare
 
-Vedi anche: [VISION.md](VISION.md) · [CHANGELOG.md](CHANGELOG.md) · [CONSEGNA.md](CONSEGNA.md)
+| Area | Implementazione presente |
+| --- | --- |
+| Conversazione | Chat web, API, CLI e streaming della risposta |
+| Memoria | SQLite, ricerca, memorie candidate/confermate e separazione per utente |
+| Continuità | Decisioni, attività aperte e brief |
+| Strumenti locali | Informazioni di sistema, lettura e ricerca nei percorsi autorizzati; stato, log e diff Git |
+| Pianificazione | Regole e planner LLM, validazione del piano e controlli per ogni passaggio |
+| Scritture | Proposte, anteprima, approvazione, snapshot e verifica del risultato |
+| Controllo | Livelli di privilegio, elevazione temporanea, audit e verifica della catena |
+| Modelli | Adattatori Ollama, Groq, OpenAI/compatibili, Vertex AI e servizio DIB esterno |
+| Problem Agent | Analisi e riformulazione delle richieste tramite `integrations/problem_agent` |
+| Interfacce | PWA, console, Telegram opzionale e funzionalità vocali dipendenti dal browser |
 
----
+La shell offline della PWA non esegue un modello sul telefono: per usare la chat serve un backend raggiungibile e un provider funzionante. Il servizio DIB e Ollama non vengono installati da questo repository.
+
+## Architettura
+
+```mermaid
+flowchart TD
+    I["Web, CLI e Telegram"] --> O["Orchestratore"]
+    O <--> M["Memoria e decisioni · SQLite"]
+    O --> P["Planner · regole e modello"]
+    P --> V["Validatore e policy"]
+    V --> E["Esecutore e strumenti"]
+    E --> W["Proposte di scrittura"]
+    W --> A["Approvazione ed elevazione"]
+    A --> F["File autorizzati"]
+    E --> L["Audit"]
+    A --> L
+```
+
+`tauros/api.py` espone le interfacce HTTP; `orchestrator.py` coordina conversazione e strumenti; `planner.py`, `plan_validator.py` e `plan_executor.py` gestiscono i piani. `policy.py`, `privileges.py` e `security_paths.py` applicano i controlli. `writes.py` gestisce le scritture supervisionate. `brain.py` permette di cambiare provider/modello a runtime.
 
 ## Requisiti
 
-- **Python 3.11+** (testato anche su 3.14)
-- Windows, macOS o Linux
-- Opzionale: chiave **Groq** / **OpenAI**, o **Ollama** in locale
-- Opzionale: Docker, bot token Telegram
+- Python **3.11 o superiore** e Git per ottenere il codice.
+- Un ambiente virtuale Python; eseguire i comandi dalla radice del repository.
+- Per risposte AI: un provider configurato e raggiungibile. L’installazione non scarica modelli.
+- Windows, Linux o macOS: gli script sono inclusi, ma la verifica di questa revisione è indicata nel rapporto, senza presumere test su tutti i sistemi.
 
----
+## Installazione
 
-## Avvio rapido (Windows)
-
-```powershell
-# gia installato su questo PC:
-C:\Users\anouar\DIB_TAUROS_LAUNCH.bat
-# PWA  http://127.0.0.1:8000/
-# Console  http://127.0.0.1:8000/console
-# Nexus (se presente)  :3000 / :8081
-```
-
-Prima installazione:
-
-```powershell
-cd tauros-cognitive-os
-.\install.ps1
-.\.venv\Scripts\Activate.ps1
-tauros init --owner "IlTuoNome" --allowlist "C:\Users\TUO\TaurosWorkspace"
-# Modifica .env: TAUROS_GROQ_API_KEY=...  e trust zones se serve
-tauros doctor
-.\start.ps1
-```
-
-## Avvio rapido (Linux / macOS)
+Se il repository è privato, Git deve essere autenticato con un account autorizzato.
 
 ```bash
-cd TAUROS_Cognitive_OS_v0.4.1
-chmod +x install.sh start.sh
-./install.sh
-source .venv/bin/activate
-tauros init --owner "IlTuoNome" --allowlist "$HOME/TaurosWorkspace"
-# edita .env
-tauros doctor
-./start.sh
+git clone https://github.com/Lucifer-AI-666/tauros-cognitive-os.git
+cd tauros-cognitive-os
 ```
 
-### URL
+### Windows PowerShell
 
-| URL | Uso |
-|-----|-----|
-| http://127.0.0.1:8000/ | **App prodotto** (login / chat / PWA) |
-| http://127.0.0.1:8000/console | **Console operativa** (token `TAUROS_API_TOKEN`) |
-| http://127.0.0.1:8000/health | Health check JSON |
-
-**Login app:** registrati, accedi, oppure **Ospite** (quota messaggi).  
-**Console:** bearer token da `.env` (non la chiave Groq).
-
-### PWA (installa come app)
-
-- **Chrome / Edge** (localhost o HTTPS): menu → **Installa app** / icona installa in-app
-- **iPhone:** Safari → Condividi → **Aggiungi a Home**
-- Shell offline: `web/offline.html` + service worker `web/sw.js`
-- Manifest: `web/manifest.webmanifest` · icone in `web/icons/`
-
----
-
-## Privilegi (non god mode)
-
-```text
-BASE → OPERATOR → ADMINISTRATOR → CONTROLLED_ROOT
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+New-Item -ItemType Directory -Force "$HOME\TaurosWorkspace"
+.\.venv\Scripts\tauros.exe init --owner "IlTuoNome" --allowlist "$HOME\TaurosWorkspace"
 ```
 
-| Livello | Capacità tipiche |
-|---------|------------------|
-| BASE | Chat, lettura leggera |
-| OPERATOR | Workspace search, git read-only, proposte scrittura |
-| ADMINISTRATOR | Approvare scritture, backup, elevate ops |
-| CONTROLLED_ROOT | Alto rischio, solo elevazione temporanea + conferma forte |
+### Linux / macOS
 
-- Elevazione dalla **console → Sicurezza** (o `POST /privileges/elevate`)
-- Frase forte predefinita: `CONFERMO ADMIN`
-- Trust zones: `TAUROS_TRUST_ZONES` (meno frizione sulle approvazioni)
-
----
-
-## Scritture supervisionate (v0.4.1)
-
-```text
-propose_write / propose_patch
-  → anteprima console (prima / dopo / rischio)
-  → elevazione se serve
-  → approve (confirm + frase forte fuori trust zone)
-  → snapshot file
-  → scrittura
-  → verifica hash
-  → rollback se fallisce
-  → audit
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+mkdir -p "$HOME/TaurosWorkspace"
+.venv/bin/tauros init --owner "IlTuoNome" --allowlist "$HOME/TaurosWorkspace"
 ```
 
-**Non inclusi di proposito (ancora):** delete libero, shell di sistema, install pacchetti OS.
+`tauros init` crea `.env` e le cartelle dei dati, genera un token e lo mostra nel terminale: conservalo privatamente. Ripara token vuoti/deboli senza cambiare un token forte esistente, salvo `--rotate-token`. Quando l’installer ha già copiato il template, compila l’allowlist vuota; conserva un’allowlist già configurata.
 
-Console: vista **Scritture** + **Sicurezza**.
+Sono disponibili anche `install.ps1` e `install.sh`. Non autorizzare l’intera home se ti servono soltanto alcune cartelle di progetto.
 
----
+## Configura il modello
 
-## Planner multi-step
+Modifica `.env`, scegliendo **una** configurazione.
 
-```text
-Piano JSON (regole o LLM)
-  → Validatore
-  → Policy + PathGuard (ogni step)
-  → Esecutore (uno step alla volta)
-  → Audit
-```
+### Ollama locale
 
-Se un passaggio è negato, il piano **si ferma**.  
-Max step: `TAUROS_MAX_PLAN_STEPS` (default 3).
-
----
-
-## Tool principali
-
-| Tool | Tipo |
-|------|------|
-| `system_info`, `disk_usage` | Info |
-| `list_directory`, `read_text_file` | FS read |
-| `workspace_search`, `project_summary` | Ricerca / summary |
-| `git_status`, `git_log`, `git_diff` | Git read-only |
-| `memory_search` | Memoria |
-| `propose_write`, `propose_patch`, `file_snapshot` | Bozze / rollback point |
-
----
-
-## Provider LLM
-
-```env
-TAUROS_PROVIDER=groq          # ollama | groq | openai | openai-compatible | vertex
-TAUROS_MODEL=openai/gpt-oss-20b
-TAUROS_GROQ_API_KEY=...
-# oppure
+```dotenv
 TAUROS_PROVIDER=ollama
 TAUROS_MODEL=llama3.2:3b
 TAUROS_OLLAMA_URL=http://127.0.0.1:11434
-# Vertex AI Gemini — usa ADC (gcloud auth application-default login)
-# o l'addon minikube gcp-auth, nessuna API key
-TAUROS_PROVIDER=vertex
-TAUROS_MODEL=gemini-2.5-flash
-TAUROS_VERTEX_PROJECT=dotted-lexicon-496211-k1
-TAUROS_VERTEX_LOCATION=europe-west1
 ```
 
-Su Minikube, dopo `minikube addons enable gcp-auth`:
+Ollama deve essere installato, avviato e avere già il modello indicato. I valori di default della classe `Settings` usano Ollama; il template `.env` e `tauros init` selezionano invece Groq. È quindi necessario controllare il file generato.
 
-```powershell
-.\scripts\deploy_minikube.ps1
+### Groq
+
+```dotenv
+TAUROS_PROVIDER=groq
+TAUROS_MODEL=openai/gpt-oss-20b
+TAUROS_GROQ_API_KEY=inserisci-la-tua-chiave
 ```
 
-Always-on **senza Docker** (processo Windows al boot/login, Vertex via ADC):
+La disponibilità effettiva dei modelli dipende dal provider e dall’account. Il catalogo nel codice non è una verifica live. Con provider remoti, i contenuti inviati al modello lasciano il dispositivo.
 
-```powershell
-.\scripts\install_always_on.ps1
-```
+OpenAI e gateway compatibili usano `TAUROS_OPENAI_API_KEY` e `TAUROS_OPENAI_BASE_URL`. Vertex usa credenziali ADC, `TAUROS_VERTEX_PROJECT` e `TAUROS_VERTEX_LOCATION`. Consulta [providers.py](tauros/providers.py) e [.env.example](.env.example).
 
----
+**Cambio modello:** la console usa `/brain`. Se esiste `data/brain.json` (nella directory del database), il suo override viene caricato all’avvio e può prevalere su `.env`.
 
-## Telegram (opzionale)
+## Avvio e primo utilizzo
 
-```env
-TAUROS_TELEGRAM_BOT_TOKEN=123456:ABC...
-```
-
-```powershell
-tauros telegram
-```
-
-Comandi bot: `/start`, `/link <token_sessione>`, `/brief`, messaggi → chat con memoria.
-
----
-
-## CLI
-
-```text
-tauros init | doctor | status | migrate | backup | restore
-tauros chat | memories | remember "..." | brief | telegram
-```
-
----
-
-## Test
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-pytest -q
-```
-
----
-
-## Docker (produzione HTTPS)
+Attiva l’ambiente (`.venv\Scripts\Activate.ps1` su Windows, `source .venv/bin/activate` su Linux/macOS), poi:
 
 ```bash
-export DOMAIN=tauros.example.com
-# .env con token forte, chiavi, allowlist, ALLOW_PUBLIC_BIND
-docker compose -f docker-compose.prod.yml up -d --build
+tauros doctor
+uvicorn tauros.api:app --host 127.0.0.1 --port 8000
 ```
 
-Vedi `Caddyfile` e `docker-compose.prod.yml`.
+| Indirizzo | Funzione |
+| --- | --- |
+| `http://127.0.0.1:8000/` | App: registrazione, login e chat |
+| `http://127.0.0.1:8000/console` | Console operativa; usare il token API privato |
+| `http://127.0.0.1:8000/health` | Stato del servizio; non prova da solo una risposta del modello |
+| `http://127.0.0.1:8000/docs` | Documentazione interattiva delle API |
 
----
+Per una prima prova senza modificare file, apri la console, autentica la sessione e chiedi: **“Dammi informazioni sul sistema”**. Per la chat libera serve anche il provider funzionante. Per la CLI: `tauros chat`.
 
-## Sicurezza di default
+Il login locale senza password e l’esposizione dell’OTP nella risposta API sono **disabilitati per default** in questa revisione. Per Google/Gmail occorre configurare il relativo servizio; per il login email serve SMTP. Le opzioni `TAUROS_LOCAL_CLICK_LOGIN` e `TAUROS_OTP_DEBUG` sono scorciatoie di sviluppo da attivare soltanto consapevolmente in un ambiente fidato.
 
-- Bind `127.0.0.1`
-- Token API forte obbligatorio
-- Allowlist filesystem
-- Modalità `read_only` (scritture solo supervisionate + elevazione)
-- Redazione segreti in log/audit
-- Migrazioni versionate con backup
+## Permessi e dati
 
----
+I livelli applicativi sono `BASE`, `OPERATOR`, `ADMINISTRATOR` e `CONTROLLED_ROOT`. Non equivalgono ai privilegi root/amministratore del sistema operativo e non aggiungono una shell arbitraria.
+
+- Bind locale predefinito e filesystem limitato dai percorsi autorizzati.
+- Elevazione temporanea: 15 minuti di default, massimo configurato 60.
+- Scritture sottoposte a policy, approvazione ed eventuale conferma forte.
+- `read_only` non è un blocco assoluto: il codice consente scritture supervisionate dopo elevazione ad amministratore.
+- Database, backup e override del modello nella directory dati; `.env` contiene credenziali.
+- Redazione dei segreti e audit sono difese applicative, non una garanzia contro ogni fuga di dati.
+
+Non esporre direttamente il servizio su Internet. Gli esempi Docker/Caddy e Kubernetes richiedono una revisione specifica di autenticazione, proxy, volumi e permessi. Un proxy locale può alterare il significato dell’indirizzo del client: mantieni disabilitato il login locale senza password.
+
+Questa revisione non attiva sincronizzazione tra dispositivi, abbinamento Wi-Fi o connettori GitHub/Vercel/Codacy. Il file `.codacy.yml` non dimostra che un account Codacy sia collegato.
+
+## Test e sviluppo
+
+```bash
+python -m pytest -q
+python -m compileall -q tauros
+```
+
+Il Problem Agent ha una suite separata:
+
+```bash
+cd integrations/problem_agent
+python -m pytest -q
+```
+
+Le dipendenze di sviluppo si installano con `python -m pip install -e '.[dev]'`. Il workflow principale esegue la suite `tests/` su Python 3.12; non comprende automaticamente quella dell’integrazione. Per esiti, ambiente e controlli non eseguiti vedi [VERIFICATION.md](docs/VERIFICATION.md).
+
+## Comandi utili
+
+| Comando | Scopo |
+| --- | --- |
+| `tauros status` / `tauros doctor` | Configurazione e diagnostica |
+| `tauros chat` / `tauros brief` | Conversazione e riepilogo |
+| `tauros memories` / `tauros remember "testo"` | Consultazione e inserimento di memoria |
+| `tauros migrate` | Migrazioni del database |
+| `tauros backup` / `tauros backups` | Creazione ed elenco backup |
+| `tauros restore PERCORSO` | Ripristino: modifica il database corrente |
+| `tauros telegram` | Bot opzionale, dopo configurazione del token |
+
+Per Telegram consulta [telegram_bot.py](tauros/telegram_bot.py); il collegamento utente usa `/link`. Token API, sessioni e token del bot non devono essere pubblicati.
+
+## Risoluzione dei problemi
+
+| Sintomo | Controllo |
+| --- | --- |
+| Token assente/debole | Esegui `tauros init`, poi riavvia il servizio |
+| Lettura file negata | Verifica allowlist, blocklist, percorso e permessi del sistema operativo |
+| Modello inatteso | Controlla `.env` e l’override `brain.json` |
+| Provider non risponde | Controlla URL, credenziali e modello; con Ollama verifica il servizio locale |
+| Codice email non ricevuto | Configura SMTP e controlla `sent`; non abilitare debug in produzione |
+| UI assente dopo installazione wheel | Lavora dalla copia del repository: la wheel attuale include solo il package `tauros` |
+| PWA offline | È disponibile la shell offline; chat e strumenti richiedono il backend |
+
+## Organizzazione del repository
+
+| Percorso | Contenuto |
+| --- | --- |
+| `tauros/` | Backend, policy, strumenti, memoria e CLI |
+| `web/` | App, console, manifest, service worker e icone |
+| `tests/` | Suite principale |
+| `integrations/problem_agent/` | Modulo opzionale e propria suite |
+| `config/` | Prompt di sistema |
+| `scripts/` | Utilità operative, anche specifiche per Windows |
+| `.github/workflows/` | Automazione dei test |
+| `docs/` | Rapporto di verifica e incarico di revisione |
+| `data/` | Dati creati a runtime, non da pubblicare |
+
+I file `TAUROS_*.txt` e i documenti di consegna precedenti sono materiale storico: non sostituiscono verifiche sulla versione corrente.
+
+## Contribuire
+
+Descrivi il problema con passi riproducibili e log privi di credenziali. Proponi modifiche su un branch dedicato, aggiungi test per i comportamenti corretti e aggiorna la documentazione. Per segnalazioni di sicurezza usa un canale privato del manutentore, evitando dettagli sensibili in issue pubbliche.
 
 ## Licenza
 
-MIT — vedi [LICENSE](LICENSE) e [NOTICE](NOTICE).  
-Dipendenze: [licenses/THIRD_PARTY.md](licenses/THIRD_PARTY.md).
-
----
-
-## Struttura cartelle
-
-```text
-TAUROS_Cognitive_OS_v0.4.1/
-├── LICENSE, NOTICE, README.md, VISION.md, CHANGELOG.md, CONSEGNA.md
-├── licenses/THIRD_PARTY.md
-├── pyproject.toml
-├── .env.example
-├── install.ps1 / install.sh
-├── start.ps1 / start.sh
-├── Dockerfile, docker-compose.yml, docker-compose.prod.yml, Caddyfile
-├── config/system_prompt.md
-├── tauros/          # motore
-├── web/             # PWA + console
-│   ├── app.html, index.html, sw.js, manifest.webmanifest, offline.html
-│   └── icons/
-├── tests/
-├── scripts/
-└── data/            # creato a runtime (db, backup)
-```
-
----
-
-## Roadmap sintetica
-
-| Versione | Focus |
-|----------|--------|
-| 0.4.0 | Continuità, tool, planner LLM, Telegram, voce |
-| **0.4.1** | **Elevazione UI + scritture supervisionate** |
-| 0.4.2 | Plugin firmati e dichiarativi |
-| 0.5+ | Sync multi-dispositivo, più azioni ad alto rischio controllate |
+[MIT](LICENSE), copyright Anouar Dib / TAUROS Cognitive OS. Vedi anche [NOTICE](NOTICE) e [dipendenze di terze parti](licenses/THIRD_PARTY.md). La licenza non viene modificata da questa revisione.
