@@ -112,7 +112,17 @@ def doctor_checks(settings) -> list[dict]:
     )
 
     db_path = Path(settings.database_path)
-    add("database_parent_writable", db_path.parent.exists() or True, str(db_path))
+    # Do not report success when the database directory does not exist or
+    # the current process lacks permission to create/update the SQLite file.
+    database_parent = db_path.parent
+    parent_writable = database_parent.is_dir() and os.access(database_parent, os.W_OK)
+    if db_path.exists():
+        parent_writable = parent_writable and db_path.is_file() and os.access(db_path, os.W_OK)
+    add(
+        "database_parent_writable",
+        parent_writable,
+        str(db_path) if parent_writable else f"cartella o database non scrivibile: {db_path}",
+    )
     if db_path.exists():
         from .database import Database
 
