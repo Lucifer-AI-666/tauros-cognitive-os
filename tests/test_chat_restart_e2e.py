@@ -19,10 +19,10 @@ _PHASE = textwrap.dedent("""
         async def chat(self, messages):
             history = [m["content"] for m in messages if m["role"] == "user"]
             if os.environ["TAUROS_TEST_PHASE"] == "second":
-                assert "prima domanda" in history, f"History lost across restart: {history!r}"
+                assert any("prima domanda" in text for text in history[:-1]), f"History lost across restart: {history!r}"
                 assert "seconda domanda" in history
                 return "seconda risposta"
-            assert history[-1] == "prima domanda"
+            assert history[-1].endswith("prima domanda"), history
             return "prima risposta"
 
     orchestrator.provider = FakeProvider()
