@@ -20,7 +20,7 @@ _PHASE = textwrap.dedent("""
             history = [m["content"] for m in messages if m["role"] == "user"]
             if os.environ["TAUROS_TEST_PHASE"] == "second":
                 assert any("prima domanda" in text for text in history[:-1]), f"History lost across restart: {history!r}"
-                assert "seconda domanda" in history
+                assert history[-1].endswith("seconda domanda"), history
                 return "seconda risposta"
             assert history[-1].endswith("prima domanda"), history
             return "prima risposta"
