@@ -76,7 +76,11 @@ def test_authenticated_chat_survives_process_restart(tmp_path):
     )
     for phase in ("first", "second"):
         env["TAUROS_TEST_PHASE"] = phase
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "-c", _PHASE],
-            check=True, env=env, capture_output=True, text=True, timeout=45,
+            check=False, env=env, capture_output=True, text=True, timeout=45,
+        )
+        assert result.returncode == 0, (
+            f"Phase {phase} failed (exit={result.returncode}):\\n"
+            f"stdout: {result.stdout}\\nstderr: {result.stderr}"
         )
