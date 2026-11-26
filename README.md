@@ -1,4 +1,60 @@
-# TAUROS Cognitive OS
+# TAUROS × DIB-NCM — THE BEAST
+
+**Beyond autoregressive intelligence.**
+
+Un progetto di ricerca e sviluppo per costruire un'intelligenza artificiale locale e autonoma basata su Next-Concept Modeling (NCM), senza dipendere da un LLM autoregressivo.
+
+> TAUROS è il corpo. DIB-NCM è il cervello.
+
+**Stato:** ricerca e migrazione architetturale. Il motore NCM non è ancora implementato né validato. La versione applicativa esistente è 0.4.5 e utilizza ancora provider linguistici tradizionali.
+
+## Missione
+
+Costruire un motore neurale che elabori rappresentazioni latenti, le raffini iterativamente e produca risposte attraverso una decodifica non autoregressiva. Nessun LLM remoto o locale come fallback nel percorso NCM finale.
+
+Il [contratto architetturale](NCM_CONTRACT.md) definisce i vincoli del progetto.
+
+## Architettura obiettivo
+
+```mermaid
+flowchart TD
+    A[Input] --> B[Concept Encoder]
+    B --> C[NCM Neural Core]
+    C --> D[Verifica dei vincoli]
+    D -->|Raffinamento| C
+    D -->|Accettazione| E[Decoder non autoregressivo]
+    E --> F[Orchestratore TAUROS]
+    F <--> G[Memoria locale]
+    F --> H[Policy e strumenti autorizzati]
+    H --> I[Audit]
+```
+
+L'architettura è proposta, non una descrizione di funzionalità già disponibili. Tokenizer, embedding e reti Transformer non autoregressive restano utilizzabili.
+
+## Roadmap
+
+| Fase | Obiettivo | Stato |
+| --- | --- | --- |
+| GENESIS | Recupero del modello originale, verifica delle licenze e riproduzione di un benchmark logico | Da verificare |
+| LOGOS | Comprensione e generazione testuale non autoregressiva | Pianificato |
+| MEMORY | Integrazione con memoria e conoscenze locali | Pianificato |
+| VISION / VOICE | Encoder e decoder multimodali | Pianificato |
+| AGENT | Pianificazione e strumenti sotto policy | Pianificato |
+| THE BEAST | Inferenza autonoma offline senza LLM | Obiettivo finale |
+
+## Criteri di accettazione
+
+- Nessuna chiamata a LLM o servizi remoti durante l'inferenza NCM; test offline e verifica delle dipendenze.
+- Benchmark riproducibili di accuratezza, latenza, RAM/VRAM e numero di iterazioni, con confronto a parità di condizioni.
+- Provenienza verificata dei pesi, licenze rispettate e attribuzioni conservate.
+- Nessuna promessa di superiorità o risparmio hardware prima delle misurazioni.
+- Migrazione isolata e reversibile, senza rimuovere il codice esistente prima della validazione.
+
+---
+
+# TAUROS Cognitive OS — documentazione della versione attuale
+
+Le istruzioni seguenti descrivono il sistema pre-migrazione, non il futuro motore NCM. I provider LLM documentati restano disponibili nel codice storico e non soddisfano il contratto NCM finale.
 
 **Un ambiente personale per lavorare con l’AI, mantenendo memoria, strumenti e controllo delle operazioni.**
 
